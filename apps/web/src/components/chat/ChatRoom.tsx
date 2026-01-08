@@ -69,6 +69,7 @@ interface RoomInfo {
     name: string;
     avatar_path: string | null;
     type: 'dm' | 'group';
+    handle?: string | null;
 }
 
 interface ChatRoomProps {
@@ -91,6 +92,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [replyTo, setReplyTo] = useState<Message | null>(null);
     const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
     const [attachmentError, setAttachmentError] = useState<string | null>(null);
+    const [sendError, setSendError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const [loading, setLoading] = useState(true);
     const [currentUserName, setCurrentUserName] = useState<string | null>(null);
@@ -261,15 +263,19 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             if ((room as any).type === 'dm') {
                 const { data: otherMember } = await supabase
                     .from('room_members')
-                    .select('profiles!inner(display_name, avatar_path)')
+                    .select('profiles!inner(display_name, avatar_path, handle)')
                     .eq('room_id', roomId)
                     .neq('user_id', userId)
                     .single();
 
                 if (otherMember) {
                     const profile = (otherMember as any).profiles;
-                    name = Array.isArray(profile) ? profile[0].display_name : profile.display_name;
-                    avatarPath = Array.isArray(profile) ? profile[0].avatar_path : profile.avatar_path;
+                    const resolved = Array.isArray(profile) ? profile[0] : profile;
+                    name = resolved.display_name;
+                    avatarPath = resolved.avatar_path;
+                    setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type, handle: resolved.handle });
+                } else {
+                    setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
                 }
             } else if ((room as any).group_id) {
                 const { data: group } = await supabase
@@ -284,7 +290,9 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 }
             }
 
-            setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
+            if ((room as any).type !== 'dm') {
+                setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
+            }
 
             // Get messages
             const { data: msgs } = await supabase
@@ -474,22 +482,40 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         setPendingAttachments([]);
         setReplyTo(null);
         setAttachmentError(null);
+        setSendError(null);
         setSending(true);
 
         try {
-            const { data: newMessage, error: messageError } = await supabase
-                .from('messages')
-                .insert({
-                    room_id: roomId,
-                    sender_user_id: userId,
-                    kind: attachmentsSnapshot.length > 0 ? 'attachment' : 'text',
-                    content: content || null,
-                    reply_to_message_id: replySnapshot?.id ?? null,
-                } as any)
-                .select('id')
-                .single();
+            const createMessage = async () => {
+                const { data: inserted, error: insertError } = await supabase
+                    .from('messages')
+                    .insert({
+                        room_id: roomId,
+                        sender_user_id: userId,
+                        kind: attachmentsSnapshot.length > 0 ? 'attachment' : 'text',
+                        content: content || null,
+                        reply_to_message_id: replySnapshot?.id ?? null,
+                    } as any)
+                    .select('id')
+                    .single();
+                return { inserted, insertError };
+            };
+
+            let { inserted: newMessage, insertError: messageError } = await createMessage();
+
+            if (messageError && messageError.message?.toLowerCase().includes('row level security')) {
+                const { error: joinError } = await supabase.from('room_members').insert([
+                    { room_id: roomId, user_id: userId },
+                ] as any);
+                if (!joinError) {
+                    const retry = await createMessage();
+                    newMessage = retry.inserted;
+                    messageError = retry.insertError as any;
+                }
+            }
 
             if (messageError || !newMessage) {
+                setSendError(messageError?.message || 'メッセージ送信に失敗しました');
                 throw messageError || new Error('Failed to create message');
             }
 
@@ -541,6 +567,9 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         setInput(value);
         if (attachmentError) {
             setAttachmentError(null);
+        }
+        if (sendError) {
+            setSendError(null);
         }
 
         if (!value.trim()) {
@@ -699,7 +728,15 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     <ArrowLeftIcon className="w-5 h-5" />
                 </Link>
                 <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
-                    {roomInfo?.avatar_path ? (
+                    {roomInfo?.handle === 'mirror' ? (
+                        <Image
+                            src="/app-icon.svg"
+                            alt="Mirror"
+                            width={40}
+                            height={40}
+                            className="w-full h-full object-cover bg-white"
+                        />
+                    ) : roomInfo?.avatar_path ? (
                         <Image
                             src={getStorageUrl('avatars', roomInfo.avatar_path)}
                             alt={roomInfo.name}
@@ -752,6 +789,14 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                     width={32}
                                                     height={32}
                                                     className="w-full h-full object-cover"
+                                                />
+                                            ) : msg.sender_name === 'Mirror' ? (
+                                                <Image
+                                                    src="/app-icon.svg"
+                                                    alt="Mirror"
+                                                    width={32}
+                                                    height={32}
+                                                    className="w-full h-full object-cover bg-white"
                                                 />
                                             ) : (
                                                 <span className="text-white text-xs font-bold">
@@ -981,6 +1026,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 {attachmentError && (
                     <div className="mb-2 text-xs text-error-600 dark:text-error-400">
                         {attachmentError}
+                    </div>
+                )}
+                {sendError && (
+                    <div className="mb-2 text-xs text-error-600 dark:text-error-400">
+                        {sendError}
                     </div>
                 )}
                 <div className="flex items-end gap-2">

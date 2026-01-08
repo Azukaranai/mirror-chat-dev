@@ -443,7 +443,15 @@ export function FriendsList({ userId }: FriendsListProps) {
             {searchResult && (
                 <div className="p-3 rounded-lg bg-primary-500/10 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
-                        {searchResult.avatar_path ? (
+                        {searchResult.handle === 'mirror' ? (
+                            <Image
+                                src="/app-icon.svg"
+                                alt="Mirror"
+                                width={40}
+                                height={40}
+                                className="w-full h-full object-cover bg-white"
+                            />
+                        ) : searchResult.avatar_path ? (
                             <Image
                                 src={getStorageUrl('avatars', searchResult.avatar_path)}
                                 alt={searchResult.display_name}
@@ -514,7 +522,15 @@ export function FriendsList({ userId }: FriendsListProps) {
                                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 cursor-pointer"
                             >
                                 <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
-                                    {friend.avatar_path ? (
+                                    {friend.handle === 'mirror' ? (
+                                        <Image
+                                            src="/app-icon.svg"
+                                            alt="Mirror"
+                                            width={40}
+                                            height={40}
+                                            className="w-full h-full object-cover bg-white"
+                                        />
+                                    ) : friend.avatar_path ? (
                                         <Image
                                             src={getStorageUrl('avatars', friend.avatar_path)}
                                             alt={friend.display_name}
@@ -569,7 +585,15 @@ export function FriendsList({ userId }: FriendsListProps) {
                     {outgoingRequests.map((friend) => (
                         <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
-                                {friend.avatar_path ? (
+                                {friend.handle === 'mirror' ? (
+                                    <Image
+                                        src="/app-icon.svg"
+                                        alt="Mirror"
+                                        width={40}
+                                        height={40}
+                                        className="w-full h-full object-cover bg-white"
+                                    />
+                                ) : friend.avatar_path ? (
                                     <Image
                                         src={getStorageUrl('avatars', friend.avatar_path)}
                                         alt={friend.display_name}
@@ -607,7 +631,15 @@ export function FriendsList({ userId }: FriendsListProps) {
                     {friends.map((friend) => (
                         <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
-                                {friend.avatar_path ? (
+                                {friend.handle === 'mirror' ? (
+                                    <Image
+                                        src="/app-icon.svg"
+                                        alt="Mirror"
+                                        width={40}
+                                        height={40}
+                                        className="w-full h-full object-cover bg-white"
+                                    />
+                                ) : friend.avatar_path ? (
                                     <Image
                                         src={getStorageUrl('avatars', friend.avatar_path)}
                                         alt={friend.display_name}

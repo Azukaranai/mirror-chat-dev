@@ -12,6 +12,7 @@ interface Room {
     type: 'dm' | 'group';
     name: string;
     avatar_path: string | null;
+    handle?: string | null;
     last_message?: string;
     last_message_at?: string;
     unread_count: number;
@@ -54,20 +55,23 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
                 const room = Array.isArray(m.rooms) ? m.rooms[0] : m.rooms;
                 let name = '';
                 let avatarPath: string | null = null;
+                let otherHandle: string | null = null;
 
                 if ((room as any).type === 'dm') {
                     // Get other user in DM
                     const { data: otherMember } = await supabase
                         .from('room_members')
-                        .select('user_id, profiles!inner(display_name, avatar_path)')
+                        .select('user_id, profiles!inner(display_name, avatar_path, handle)')
                         .eq('room_id', room.id)
                         .neq('user_id', userId)
                         .single();
 
                     if (otherMember) {
                         const profile = (otherMember as any).profiles;
-                        name = Array.isArray(profile) ? profile[0].display_name : profile.display_name;
-                        avatarPath = Array.isArray(profile) ? profile[0].avatar_path : profile.avatar_path;
+                        const resolved = Array.isArray(profile) ? profile[0] : profile;
+                        name = resolved.display_name;
+                        avatarPath = resolved.avatar_path;
+                        otherHandle = resolved.handle;
                     }
                 } else {
                     // Get group info
@@ -132,6 +136,7 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
                     type: (room as any).type,
                     name,
                     avatar_path: avatarPath,
+                    handle: otherHandle,
                     last_message: lastMessageContent,
                     last_message_at: (lastMsg as any)?.created_at,
                     unread_count: unreadCount,
@@ -210,7 +215,15 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
                             )}
                         >
                             <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
-                                {room.avatar_path ? (
+                                {room.handle === 'mirror' ? (
+                                    <Image
+                                        src="/app-icon.svg"
+                                        alt="Mirror"
+                                        width={48}
+                                        height={48}
+                                        className="w-full h-full object-cover bg-white"
+                                    />
+                                ) : room.avatar_path ? (
                                     <Image
                                         src={getStorageUrl('avatars', room.avatar_path)}
                                         alt={room.name}
