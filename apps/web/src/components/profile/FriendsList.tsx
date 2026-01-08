@@ -382,11 +382,24 @@ export function FriendsList({ userId }: FriendsListProps) {
             return;
         }
 
-        // Add both users to room
-        await supabase.from('room_members').insert([
+        // Add self first (RLS), then friend
+        const { error: selfJoinError } = await supabase.from('room_members').insert([
             { room_id: (newRoom as any).id, user_id: userId },
+        ] as any);
+
+        if (selfJoinError) {
+            setError('ルームへの参加に失敗しました');
+            return;
+        }
+
+        const { error: friendJoinError } = await supabase.from('room_members').insert([
             { room_id: (newRoom as any).id, user_id: friendUserId },
         ] as any);
+
+        if (friendJoinError) {
+            setError('相手の追加に失敗しました');
+            return;
+        }
 
         window.location.href = `/talk/${(newRoom as any).id}`;
     };
