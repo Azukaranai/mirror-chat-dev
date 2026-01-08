@@ -1,0 +1,445 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   CSS Custom Properties for Theming
+   ============================================ */
+
+:root {
+  /* Font size scale (adjustable via settings) */
+  --font-scale: 1;
+  
+  /* Base font size - Desktop: 16px, Mobile: 14px */
+  --base-font-size: 16px;
+  
+  /* Spacing scale */
+  --spacing-unit: 0.25rem;
+  
+  /* Z-index layers */
+  --z-nav: 100;
+  --z-modal: 200;
+  --z-overlay: 300;
+  --z-toast: 400;
+  
+  /* Transition defaults */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+  
+  /* Light mode colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f5;
+  --bg-tertiary: #e4e4e7;
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+  --border-color: #e4e4e7;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+.dark {
+  --bg-primary: #09090b;
+  --bg-secondary: #18181b;
+  --bg-tertiary: #27272a;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #71717a;
+  --border-color: #3f3f46;
+  --shadow-color: rgba(0, 0, 0, 0.4);
+}
+
+/* Mobile default font size */
+@media (max-width: 768px) {
+  :root {
+    --base-font-size: 14px;
+  }
+}
+
+/* Apply font scale */
+html {
+  font-size: calc(var(--base-font-size) * var(--font-scale));
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   Scrollbar Styling
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-tertiary) transparent;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+@layer utilities {
+  /* Glass morphism effect */
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  
+  .dark .glass {
+    background: rgba(24, 24, 27, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #0ea5e9, #d946ef);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  /* Safe area padding for mobile */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0);
+  }
+  
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Truncate text with ellipsis */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .truncate-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ============================================
+   Component Base Styles
+   ============================================ */
+
+@layer components {
+  /* Button base */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 
+           px-4 py-2 rounded-xl font-medium 
+           transition-all duration-200 
+           focus:outline-none focus:ring-2 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary-500 text-white 
+           hover:bg-primary-600 
+           focus:ring-primary-500;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-surface-200 text-surface-900 
+           hover:bg-surface-300 
+           dark:bg-surface-700 dark:text-surface-100 
+           dark:hover:bg-surface-600
+           focus:ring-surface-500;
+  }
+  
+  .btn-ghost {
+    @apply btn bg-transparent 
+           hover:bg-surface-100 dark:hover:bg-surface-800
+           focus:ring-surface-500;
+  }
+  
+  .btn-danger {
+    @apply btn bg-error-500 text-white 
+           hover:bg-error-600 
+           focus:ring-error-500;
+  }
+  
+  .btn-icon {
+    @apply p-2 rounded-full 
+           transition-colors duration-200
+           hover:bg-surface-100 dark:hover:bg-surface-800
+           focus:outline-none focus:ring-2 focus:ring-primary-500;
+  }
+  
+  /* Input base */
+  .input {
+    @apply w-full px-4 py-2.5 
+           bg-surface-50 dark:bg-surface-800 
+           border border-surface-200 dark:border-surface-700 
+           rounded-xl
+           text-surface-900 dark:text-surface-100
+           placeholder:text-surface-400 dark:placeholder:text-surface-500
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           transition-all duration-200;
+  }
+  
+  /* Card base */
+  .card {
+    @apply bg-white dark:bg-surface-900 
+           border border-surface-200 dark:border-surface-800 
+           rounded-2xl shadow-sm;
+  }
+  
+  /* Avatar */
+  .avatar {
+    @apply rounded-full object-cover bg-surface-200 dark:bg-surface-700;
+  }
+  
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 
+           rounded-full text-xs font-medium;
+  }
+  
+  .badge-primary {
+    @apply badge bg-primary-100 text-primary-700 
+           dark:bg-primary-900/30 dark:text-primary-400;
+  }
+  
+  .badge-success {
+    @apply badge bg-green-100 text-green-700 
+           dark:bg-green-900/30 dark:text-green-400;
+  }
+  
+  .badge-warning {
+    @apply badge bg-amber-100 text-amber-700 
+           dark:bg-amber-900/30 dark:text-amber-400;
+  }
+  
+  /* Message bubble */
+  .message-bubble {
+    @apply max-w-[80%] px-4 py-2 rounded-2xl;
+  }
+  
+  .message-bubble-sent {
+    @apply message-bubble bg-primary-500 text-white rounded-br-md;
+  }
+  
+  .message-bubble-received {
+    @apply message-bubble bg-surface-100 dark:bg-surface-800 rounded-bl-md;
+  }
+  
+  /* AI message */
+  .ai-message {
+    @apply px-4 py-3 rounded-2xl 
+           bg-gradient-to-br from-accent-50 to-primary-50 
+           dark:from-accent-950/30 dark:to-primary-950/30
+           border border-accent-100 dark:border-accent-900/30;
+  }
+  
+  /* Typing indicator */
+  .typing-indicator {
+    @apply flex gap-1 items-center px-4 py-2;
+  }
+  
+  .typing-dot {
+    @apply w-2 h-2 rounded-full bg-surface-400 animate-typing;
+  }
+  
+  .typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  
+  .typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+
+/* ============================================
+   Overlay Window Styles
+   ============================================ */
+
+.overlay-window {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  transition: box-shadow var(--transition-fast);
+}
+
+.overlay-window:focus-within,
+.overlay-window.active {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+}
+
+.overlay-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  cursor: move;
+  user-select: none;
+}
+
+.overlay-window-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.overlay-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+}
+
+/* ============================================
+   Split View Styles
+   ============================================ */
+
+.split-container {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.split-container.horizontal {
+  flex-direction: row;
+}
+
+.split-container.vertical {
+  flex-direction: column;
+}
+
+.split-divider {
+  flex-shrink: 0;
+  background: var(--border-color);
+  transition: background var(--transition-fast);
+}
+
+.split-divider:hover {
+  background: var(--text-tertiary);
+}
+
+.split-divider.horizontal {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.split-divider.vertical {
+  height: 4px;
+  cursor: row-resize;
+}
+
+/* ============================================
+   Navigation Styles
+   ============================================ */
+
+.nav-item {
+  @apply flex flex-col items-center justify-center gap-1
+         p-2 rounded-xl
+         text-surface-500 dark:text-surface-400
+         transition-colors duration-200
+         hover:bg-surface-100 dark:hover:bg-surface-800
+         hover:text-surface-900 dark:hover:text-surface-100;
+}
+
+.nav-item.active {
+  @apply bg-primary-50 dark:bg-primary-950/30
+         text-primary-600 dark:text-primary-400;
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+/* Message appear animation */
+@keyframes messageAppear {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-appear {
+  animation: messageAppear 0.2s ease-out;
+}
+
+/* Stream text animation */
+@keyframes streamCursor {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.stream-cursor::after {
+  content: '▋';
+  animation: streamCursor 0.8s ease-in-out infinite;
+  color: var(--text-tertiary);
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
