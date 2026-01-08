@@ -61,12 +61,17 @@ http://localhost:3000 でアクセス
 
 1. Cloudflare Pages で新規プロジェクト作成（Git連携）
 2. ルートディレクトリ: `apps/web`
-3. ビルドコマンド: `npm run pages:build`
+3. ビルドコマンド: `npm run pages:build`（デプロイ時に運営アナウンスを自動配信します）
 4. 出力ディレクトリ: `.vercel/output/static`
 5. 環境変数を設定:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `MIRROR_BROADCAST_URL` (例: `https://<project-ref>.functions.supabase.co/mirror_broadcast`)
+   - `MIRROR_ADMIN_TOKEN`
+   - `MIRROR_BROADCAST_MESSAGE`（任意: 変更点メッセージ）
 6. Functions の Compatibility Flags に `nodejs_compat` を追加（`apps/web/wrangler.toml` にも設定済み）
+
+※ `MIRROR_BROADCAST_URL` と `MIRROR_ADMIN_TOKEN` が未設定の場合は自動配信をスキップします。
 
 ## プロジェクト構造
 
