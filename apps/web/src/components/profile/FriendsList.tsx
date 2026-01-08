@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { getStorageUrl, getInitials } from '@/lib/utils';
-import type { Profile } from '@/types/database';
 
 const UserPlusIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -54,87 +53,149 @@ export function FriendsList({ userId }: FriendsListProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch friends
-    useEffect(() => {
-        const fetchFriends = async () => {
-            setLoading(true);
+    const fetchFriends = useCallback(async () => {
+        setLoading(true);
+        setError(null);
 
-            // Get friendships where user is requester
-            const { data: asRequester } = await supabase
-                .from('friendships')
-                .select(`
-          id,
-          status,
-          addressee:profiles!friendships_addressee_id_fkey(user_id, display_name, handle, avatar_path)
-        `)
-                .eq('requester_id', userId);
+        const { data: asRequester, error: requesterError } = await supabase
+            .from('friendships')
+            .select('id, status, requester_id, addressee_id')
+            .eq('requester_id', userId);
 
-            // Get friendships where user is addressee
-            const { data: asAddressee } = await supabase
-                .from('friendships')
-                .select(`
-          id,
-          status,
-          requester:profiles!friendships_requester_id_fkey(user_id, display_name, handle, avatar_path)
-        `)
-                .eq('addressee_id', userId);
+        const { data: asAddressee, error: addresseeError } = await supabase
+            .from('friendships')
+            .select('id, status, requester_id, addressee_id')
+            .eq('addressee_id', userId);
 
-            const allFriends: Friend[] = [];
-            const pending: Friend[] = [];
-
-            // Process as requester
-            asRequester?.forEach((f: any) => {
-                // Safe check for addressee
-                if (!f.addressee) return;
-
-                const addressee = Array.isArray(f.addressee) ? f.addressee[0] : f.addressee;
-
-                const friend = {
-                    id: f.id,
-                    user_id: addressee.user_id,
-                    display_name: addressee.display_name,
-                    handle: addressee.handle,
-                    avatar_path: addressee.avatar_path,
-                    status: f.status,
-                    is_requester: true,
-                };
-                if (f.status === 'accepted') {
-                    allFriends.push(friend);
-                } else if (f.status === 'pending') {
-                    pending.push(friend);
-                }
-            });
-
-            // Process as addressee
-            asAddressee?.forEach((f: any) => {
-                // Safe check for requester
-                if (!f.requester) return;
-
-                const requester = Array.isArray(f.requester) ? f.requester[0] : f.requester;
-
-                const friend = {
-                    id: f.id,
-                    user_id: requester.user_id,
-                    display_name: requester.display_name,
-                    handle: requester.handle,
-                    avatar_path: requester.avatar_path,
-                    status: f.status,
-                    is_requester: false,
-                };
-                if (f.status === 'accepted') {
-                    allFriends.push(friend);
-                } else if (f.status === 'pending') {
-                    pending.push(friend);
-                }
-            });
-
-            setFriends(allFriends);
-            setPendingRequests(pending);
+        if (requesterError || addresseeError) {
+            setError('友達情報の取得に失敗しました');
             setLoading(false);
-        };
+            return;
+        }
 
-        fetchFriends();
+        const friendIds = new Set<string>();
+        asRequester?.forEach((row: any) => friendIds.add(row.addressee_id));
+        asAddressee?.forEach((row: any) => friendIds.add(row.requester_id));
+
+        let profilesById: Record<string, { user_id: string; display_name: string; handle: string; avatar_path: string | null }> = {};
+
+        if (friendIds.size > 0) {
+            const { data: profiles, error: profilesError } = await supabase
+                .from('profiles')
+                .select('user_id, display_name, handle, avatar_path')
+                .in('user_id', Array.from(friendIds));
+
+            if (profilesError) {
+                setError('友達情報の取得に失敗しました');
+                setLoading(false);
+                return;
+            }
+
+            profilesById = (profiles || []).reduce((acc, profile) => {
+                acc[profile.user_id] = profile;
+                return acc;
+            }, {} as Record<string, { user_id: string; display_name: string; handle: string; avatar_path: string | null }>);
+        }
+
+        const allFriends: Friend[] = [];
+        const pending: Friend[] = [];
+        const acceptedIds = new Set<string>();
+        const pendingIds = new Set<string>();
+
+        asRequester?.forEach((row: any) => {
+            const profile = profilesById[row.addressee_id];
+            if (!profile) return;
+
+            const friend: Friend = {
+                id: row.id,
+                user_id: profile.user_id,
+                display_name: profile.display_name,
+                handle: profile.handle,
+                avatar_path: profile.avatar_path,
+                status: row.status,
+                is_requester: true,
+            };
+
+            if (row.status === 'accepted') {
+                if (!acceptedIds.has(friend.user_id)) {
+                    acceptedIds.add(friend.user_id);
+                    allFriends.push(friend);
+                }
+            } else if (row.status === 'pending' && !pendingIds.has(friend.user_id) && !acceptedIds.has(friend.user_id)) {
+                pendingIds.add(friend.user_id);
+                pending.push(friend);
+            }
+        });
+
+        asAddressee?.forEach((row: any) => {
+            const profile = profilesById[row.requester_id];
+            if (!profile) return;
+
+            const friend: Friend = {
+                id: row.id,
+                user_id: profile.user_id,
+                display_name: profile.display_name,
+                handle: profile.handle,
+                avatar_path: profile.avatar_path,
+                status: row.status,
+                is_requester: false,
+            };
+
+            if (row.status === 'accepted') {
+                if (!acceptedIds.has(friend.user_id)) {
+                    acceptedIds.add(friend.user_id);
+                    allFriends.push(friend);
+                }
+            } else if (row.status === 'pending' && !pendingIds.has(friend.user_id) && !acceptedIds.has(friend.user_id)) {
+                pendingIds.add(friend.user_id);
+                pending.push(friend);
+            }
+        });
+
+        setFriends(allFriends);
+        setPendingRequests(pending);
+        setLoading(false);
     }, [supabase, userId]);
+
+    // Fetch friends on mount
+    useEffect(() => {
+        fetchFriends();
+    }, [fetchFriends]);
+
+    // Realtime updates for incoming/outgoing requests
+    useEffect(() => {
+        const channel = supabase
+            .channel(`friendships:${userId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'friendships',
+                    filter: `requester_id=eq.${userId}`,
+                },
+                () => {
+                    fetchFriends();
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'friendships',
+                    filter: `addressee_id=eq.${userId}`,
+                },
+                () => {
+                    fetchFriends();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [fetchFriends, supabase, userId]);
 
     // Search user by handle
     const handleSearch = async () => {
@@ -173,6 +234,32 @@ export function FriendsList({ userId }: FriendsListProps) {
     const handleSendRequest = async () => {
         if (!searchResult) return;
 
+        setError(null);
+
+        const { data: reverseRequest, error: reverseError } = await supabase
+            .from('friendships')
+            .select('id, status')
+            .eq('requester_id', searchResult.user_id)
+            .eq('addressee_id', userId)
+            .maybeSingle();
+
+        if (!reverseError && reverseRequest?.id && reverseRequest.status === 'pending') {
+            const { error: acceptError } = await (supabase
+                .from('friendships') as any)
+                .update({ status: 'accepted' })
+                .eq('id', reverseRequest.id);
+
+            if (acceptError) {
+                setError('申請の承認に失敗しました');
+                return;
+            }
+
+            await fetchFriends();
+            setSearchResult(null);
+            setSearchQuery('');
+            return;
+        }
+
         const { error: insertError } = await (supabase
             .from('friendships') as any)
             .insert({
@@ -183,19 +270,12 @@ export function FriendsList({ userId }: FriendsListProps) {
 
         if (insertError) {
             setError('申請に失敗しました');
-        } else {
-            setPendingRequests([...pendingRequests, {
-                id: '',
-                user_id: searchResult.user_id,
-                display_name: searchResult.display_name,
-                handle: searchResult.handle,
-                avatar_path: searchResult.avatar_path,
-                status: 'pending',
-                is_requester: true,
-            }]);
-            setSearchResult(null);
-            setSearchQuery('');
+            return;
         }
+
+        await fetchFriends();
+        setSearchResult(null);
+        setSearchQuery('');
     };
 
     // Accept friend request
@@ -205,13 +285,12 @@ export function FriendsList({ userId }: FriendsListProps) {
             .update({ status: 'accepted' })
             .eq('id', friendshipId);
 
-        if (!updateError) {
-            const accepted = pendingRequests.find(f => f.id === friendshipId);
-            if (accepted) {
-                setFriends([...friends, { ...accepted, status: 'accepted' }]);
-                setPendingRequests(pendingRequests.filter(f => f.id !== friendshipId));
-            }
+        if (updateError) {
+            setError('申請の承認に失敗しました');
+            return;
         }
+
+        await fetchFriends();
     };
 
     // Reject/Cancel friend request
@@ -221,9 +300,12 @@ export function FriendsList({ userId }: FriendsListProps) {
             .delete()
             .eq('id', friendshipId);
 
-        if (!deleteError) {
-            setPendingRequests(pendingRequests.filter(f => f.id !== friendshipId));
+        if (deleteError) {
+            setError('申請の拒否に失敗しました');
+            return;
         }
+
+        await fetchFriends();
     };
 
     // Start DM
