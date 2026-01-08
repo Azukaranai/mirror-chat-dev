@@ -78,8 +78,8 @@ export function ProfileView({ profile, userId }: ProfileViewProps) {
             }
 
             // Update profile
-            const { error: updateError } = await supabase
-                .from('profiles')
+            const { error: updateError } = await (supabase
+                .from('profiles') as any)
                 .update({ avatar_path: filename })
                 .eq('user_id', userId);
 
@@ -106,8 +106,8 @@ export function ProfileView({ profile, userId }: ProfileViewProps) {
         setError(null);
 
         try {
-            const { error: updateError } = await supabase
-                .from('profiles')
+            const { error: updateError } = await (supabase
+                .from('profiles') as any)
                 .update({ display_name: displayName.trim() })
                 .eq('user_id', userId);
 

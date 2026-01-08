@@ -8,6 +8,8 @@ const inter = Inter({
     variable: '--font-inter',
 });
 
+export const runtime = 'edge';
+
 export const metadata: Metadata = {
     title: 'Mirror Chat',
     description: 'AIチャット共有アプリ - LINE/Discord風チャット + ChatGPT風AIスレッド',

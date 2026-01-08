@@ -38,8 +38,10 @@ export default function SettingsPage() {
                 .select('key_last4')
                 .maybeSingle();
 
-            if (!canceled && !error && data?.key_last4) {
-                setApiKeyLast4(data.key_last4);
+            const keyLast4 = (data as { key_last4?: string } | null)?.key_last4;
+
+            if (!canceled && !error && keyLast4) {
+                setApiKeyLast4(keyLast4);
             }
         };
 

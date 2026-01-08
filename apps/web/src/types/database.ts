@@ -207,83 +207,100 @@ export interface Database {
                 Row: Profile;
                 Insert: Omit<Profile, 'created_at' | 'updated_at'>;
                 Update: Partial<Omit<Profile, 'user_id' | 'created_at'>>;
+                Relationships: [];
             };
             friendships: {
                 Row: Friendship;
                 Insert: Omit<Friendship, 'id' | 'created_at'>;
                 Update: Partial<Pick<Friendship, 'status'>>;
+                Relationships: [];
             };
             groups: {
                 Row: Group;
                 Insert: Omit<Group, 'id' | 'created_at' | 'updated_at'>;
                 Update: Partial<Omit<Group, 'id' | 'created_at'>>;
+                Relationships: [];
             };
             group_members: {
                 Row: GroupMember;
                 Insert: Omit<GroupMember, 'created_at'>;
                 Update: Partial<Pick<GroupMember, 'role'>>;
+                Relationships: [];
             };
             rooms: {
                 Row: Room;
                 Insert: Omit<Room, 'id' | 'created_at'>;
                 Update: never;
+                Relationships: [];
             };
             room_members: {
                 Row: RoomMember;
                 Insert: Omit<RoomMember, 'joined_at'>;
                 Update: Partial<Pick<RoomMember, 'last_read_message_id'>>;
+                Relationships: [];
             };
             messages: {
                 Row: Message;
                 Insert: Omit<Message, 'id' | 'created_at' | 'edited_at'>;
                 Update: Partial<Pick<Message, 'content' | 'edited_at'>>;
+                Relationships: [];
             };
             message_reactions: {
                 Row: MessageReaction;
                 Insert: Omit<MessageReaction, 'created_at'>;
                 Update: never;
+                Relationships: [];
             };
             message_attachments: {
                 Row: MessageAttachment;
                 Insert: Omit<MessageAttachment, 'id' | 'created_at'>;
                 Update: never;
+                Relationships: [];
             };
             ai_threads: {
                 Row: AIThread;
                 Insert: Omit<AIThread, 'id' | 'created_at' | 'updated_at' | 'archived_at'>;
                 Update: Partial<Pick<AIThread, 'title' | 'system_prompt' | 'model' | 'archived_at'>>;
+                Relationships: [];
             };
             ai_thread_members: {
                 Row: AIThreadMember;
                 Insert: Omit<AIThreadMember, 'created_at'>;
                 Update: Partial<Pick<AIThreadMember, 'permission'>>;
+                Relationships: [];
             };
             ai_messages: {
                 Row: AIMessage;
                 Insert: Omit<AIMessage, 'id' | 'created_at'>;
                 Update: never;
+                Relationships: [];
             };
             ai_queue_items: {
                 Row: AIQueueItem;
                 Insert: Omit<AIQueueItem, 'id' | 'created_at' | 'consumed_at' | 'discarded_at'>;
                 Update: Partial<Pick<AIQueueItem, 'status' | 'consumed_at' | 'discarded_at'>>;
+                Relationships: [];
             };
             ai_runs: {
                 Row: AIRun;
                 Insert: Omit<AIRun, 'id' | 'started_at' | 'finished_at' | 'error'>;
                 Update: Partial<Pick<AIRun, 'status' | 'finished_at' | 'error'>>;
+                Relationships: [];
             };
             ai_stream_events: {
                 Row: AIStreamEvent;
                 Insert: Omit<AIStreamEvent, 'id' | 'created_at'>;
                 Update: never;
+                Relationships: [];
             };
             user_llm_keys: {
                 Row: UserLLMKey;
                 Insert: Omit<UserLLMKey, 'created_at' | 'updated_at'>;
                 Update: Partial<Pick<UserLLMKey, 'encrypted_key' | 'key_last4'>>;
+                Relationships: [];
             };
         };
+        Views: {};
         Functions: {
             is_room_member: {
                 Args: { p_room_id: string; p_user_id: string };
