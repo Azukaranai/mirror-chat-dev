@@ -106,13 +106,10 @@ export function FriendsList({ userId }: FriendsListProps) {
             }, {} as Record<string, { user_id: string; display_name: string; handle: string; avatar_path: string | null }>);
         }
 
-        const allFriends: Friend[] = [];
-        const pending: Friend[] = [];
-        const acceptedIds = new Set<string>();
-        const pendingIds = new Set<string>();
+        const acceptedById = new Map<string, Friend>();
+        const pendingById = new Map<string, Friend>();
 
-        asRequester?.forEach((row: any) => {
-            const profile = profilesById[row.addressee_id];
+        const addRow = (row: any, profile: any, isRequester: boolean) => {
             if (!profile) return;
 
             const friend: Friend = {
@@ -122,47 +119,36 @@ export function FriendsList({ userId }: FriendsListProps) {
                 handle: profile.handle,
                 avatar_path: profile.avatar_path,
                 status: row.status,
-                is_requester: true,
+                is_requester: isRequester,
             };
 
             if (row.status === 'accepted') {
-                if (!acceptedIds.has(friend.user_id)) {
-                    acceptedIds.add(friend.user_id);
-                    allFriends.push(friend);
-                }
-            } else if (row.status === 'pending' && !pendingIds.has(friend.user_id) && !acceptedIds.has(friend.user_id)) {
-                pendingIds.add(friend.user_id);
-                pending.push(friend);
+                acceptedById.set(friend.user_id, friend);
+                pendingById.delete(friend.user_id);
+                return;
             }
+
+            if (row.status === 'pending' && !acceptedById.has(friend.user_id)) {
+                const existing = pendingById.get(friend.user_id);
+                if (!existing) {
+                    pendingById.set(friend.user_id, friend);
+                } else if (existing.is_requester && !friend.is_requester) {
+                    // Prefer incoming request when both directions are pending.
+                    pendingById.set(friend.user_id, friend);
+                }
+            }
+        };
+
+        asRequester?.forEach((row: any) => {
+            addRow(row, profilesById[row.addressee_id], true);
         });
 
         asAddressee?.forEach((row: any) => {
-            const profile = profilesById[row.requester_id];
-            if (!profile) return;
-
-            const friend: Friend = {
-                id: row.id,
-                user_id: profile.user_id,
-                display_name: profile.display_name,
-                handle: profile.handle,
-                avatar_path: profile.avatar_path,
-                status: row.status,
-                is_requester: false,
-            };
-
-            if (row.status === 'accepted') {
-                if (!acceptedIds.has(friend.user_id)) {
-                    acceptedIds.add(friend.user_id);
-                    allFriends.push(friend);
-                }
-            } else if (row.status === 'pending' && !pendingIds.has(friend.user_id) && !acceptedIds.has(friend.user_id)) {
-                pendingIds.add(friend.user_id);
-                pending.push(friend);
-            }
+            addRow(row, profilesById[row.requester_id], false);
         });
 
-        setFriends(allFriends);
-        setPendingRequests(pending);
+        setFriends(Array.from(acceptedById.values()));
+        setPendingRequests(Array.from(pendingById.values()));
         setLoading(false);
     }, [supabase, userId]);
 
