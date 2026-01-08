@@ -231,6 +231,20 @@ export function FriendsList({ userId }: FriendsListProps) {
             return;
         }
 
+        const localMatch = [...friends, ...pendingRequests].find((friend) => friend.user_id === data.user_id);
+        if (localMatch) {
+            const relation: FriendshipRelation = {
+                id: localMatch.id,
+                status: localMatch.status,
+                requester_id: localMatch.is_requester ? userId : data.user_id,
+                addressee_id: localMatch.is_requester ? data.user_id : userId,
+            };
+            setSearchResult(data);
+            setSearchRelation(relation);
+            setSearching(false);
+            return;
+        }
+
         const { data: relations, error: relationError } = await supabase
             .from('friendships')
             .select('id, status, requester_id, addressee_id')
@@ -581,9 +595,16 @@ export function FriendsList({ userId }: FriendsListProps) {
             {/* Friends List */}
             {friends.length > 0 ? (
                 <div className="space-y-2">
-                    {(incomingRequests.length > 0 || outgoingRequests.length > 0) && (
-                        <h3 className="text-sm font-medium text-surface-500">友達</h3>
-                    )}
+                    <div className="flex items-center justify-between">
+                        {(incomingRequests.length > 0 || outgoingRequests.length > 0) && (
+                            <h3 className="text-sm font-medium text-surface-500">友達</h3>
+                        )}
+                        {incomingRequests.length > 0 && (
+                            <span className="text-xs rounded-full bg-primary-500/10 text-primary-600 px-2 py-0.5">
+                                受信 {incomingRequests.length}
+                            </span>
+                        )}
+                    </div>
                     {friends.map((friend) => (
                         <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
