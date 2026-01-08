@@ -12,6 +12,7 @@ export default function RegisterPage() {
     const [displayName, setDisplayName] = useState('');
     const [handle, setHandle] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const router = useRouter();
     const supabase = useMemo(() => createClient(), []);
@@ -19,6 +20,9 @@ export default function RegisterPage() {
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+        setNotice(null);
+
+        if (loading) return;
 
         // Validation
         if (password !== confirmPassword) {
@@ -44,19 +48,37 @@ export default function RegisterPage() {
         setLoading(true);
 
         try {
-            const { error } = await supabase.auth.signUp({
-                email,
+            const normalizedEmail = email.trim().toLowerCase();
+            const normalizedHandle = handle.trim().toLowerCase();
+            const normalizedDisplayName = displayName.trim();
+
+            const { data, error: signUpError } = await supabase.auth.signUp({
+                email: normalizedEmail,
                 password,
                 options: {
                     data: {
-                        display_name: displayName,
-                        handle: handle.toLowerCase(),
+                        display_name: normalizedDisplayName,
+                        handle: normalizedHandle,
                     },
                 },
             });
 
-            if (error) {
-                setError(error.message);
+            if (signUpError) {
+                if (signUpError.message.toLowerCase().includes('already registered')) {
+                    setError('このメールアドレスは既に登録されています');
+                } else {
+                    setError(signUpError.message);
+                }
+                return;
+            }
+
+            if (data.user && data.user.identities && data.user.identities.length === 0) {
+                setError('このメールアドレスは既に登録されています');
+                return;
+            }
+
+            if (!data.session) {
+                setNotice('確認メールを送信しました。メールを確認して登録を完了してください。');
             } else {
                 router.push('/talk');
                 router.refresh();
@@ -178,6 +200,11 @@ export default function RegisterPage() {
                 {error && (
                     <div className="p-3 rounded-lg bg-error-500/10 text-error-600 dark:text-error-400 text-sm">
                         {error}
+                    </div>
+                )}
+                {notice && (
+                    <div className="p-3 rounded-lg bg-success-500/10 text-success-600 dark:text-success-400 text-sm">
+                        {notice}
                     </div>
                 )}
 
