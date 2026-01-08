@@ -22,13 +22,14 @@ export default async function AIThreadPage({ params }: AIThreadPageProps) {
         .eq('id', threadId)
         .single();
 
-    const thread = threadData as AIThread | null;
+    let thread = threadData as AIThread | null;
+    let permission: 'VIEW' | 'INTERVENE' | null = null;
 
     if (!thread) {
         // Check if user is a member
         const { data: membership } = await supabase
             .from('ai_thread_members')
-            .select('*')
+            .select('permission, ai_threads!inner(*)')
             .eq('thread_id', threadId)
             .eq('user_id', user.id)
             .single();
@@ -36,6 +37,20 @@ export default async function AIThreadPage({ params }: AIThreadPageProps) {
         if (!membership) {
             notFound();
         }
+
+        permission = (membership as any).permission || null;
+        const joinedThread = Array.isArray((membership as any).ai_threads)
+            ? (membership as any).ai_threads[0]
+            : (membership as any).ai_threads;
+        thread = (joinedThread as AIThread) || null;
+    } else if (thread.owner_user_id !== user.id) {
+        const { data: membership } = await supabase
+            .from('ai_thread_members')
+            .select('permission')
+            .eq('thread_id', threadId)
+            .eq('user_id', user.id)
+            .single();
+        permission = (membership as any)?.permission || null;
     }
 
     const isOwner = thread ? thread.owner_user_id === user.id : false;
@@ -57,6 +72,7 @@ export default async function AIThreadPage({ params }: AIThreadPageProps) {
                     userId={user.id}
                     isOwner={isOwner}
                     thread={thread}
+                    permission={permission}
                 />
             </div>
         </div>

@@ -107,24 +107,10 @@ export default function SettingsPage() {
     // Apply font scale
     const handleFontScaleChange = (scale: FontScale) => {
         setFontScale(scale);
-        document.documentElement.style.setProperty('--font-scale', scale.toString());
     };
 
-    // Apply theme
     const handleThemeChange = (newTheme: Theme) => {
         setTheme(newTheme);
-        if (newTheme === 'dark') {
-            document.documentElement.classList.add('dark');
-        } else if (newTheme === 'light') {
-            document.documentElement.classList.remove('dark');
-        } else {
-            // System preference
-            if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
-        }
     };
 
     return (

@@ -39,6 +39,13 @@ interface Friend {
     is_requester: boolean;
 }
 
+interface FriendshipRelation {
+    id: string;
+    status: 'pending' | 'accepted';
+    requester_id: string;
+    addressee_id: string;
+}
+
 interface FriendsListProps {
     userId: string;
 }
@@ -49,6 +56,8 @@ export function FriendsList({ userId }: FriendsListProps) {
     const [pendingRequests, setPendingRequests] = useState<Friend[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResult, setSearchResult] = useState<{ user_id: string; display_name: string; handle: string; avatar_path: string | null } | null>(null);
+    const [searchRelation, setSearchRelation] = useState<FriendshipRelation | null>(null);
+    const [activeIncomingId, setActiveIncomingId] = useState<string | null>(null);
     const [searching, setSearching] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -203,6 +212,7 @@ export function FriendsList({ userId }: FriendsListProps) {
 
         setSearching(true);
         setSearchResult(null);
+        setSearchRelation(null);
         setError(null);
 
         const handle = searchQuery.trim().replace('@', '').toLowerCase();
@@ -217,22 +227,33 @@ export function FriendsList({ userId }: FriendsListProps) {
 
         if (searchError || !data) {
             setError('ユーザーが見つかりません');
-        } else {
-            // Check if already friends or pending
-            const existing = [...friends, ...pendingRequests].find(f => f.user_id === data.user_id);
-            if (existing) {
-                setError('既に友達、または申請中です');
-            } else {
-                setSearchResult(data);
-            }
+            setSearching(false);
+            return;
         }
 
+        const { data: relations, error: relationError } = await supabase
+            .from('friendships')
+            .select('id, status, requester_id, addressee_id')
+            .or(`and(requester_id.eq.${userId},addressee_id.eq.${data.user_id}),and(requester_id.eq.${data.user_id},addressee_id.eq.${userId})`);
+
+        if (relationError) {
+            setError('友達情報の取得に失敗しました');
+            setSearchResult(data);
+            setSearching(false);
+            return;
+        }
+
+        const relation = (relations || []).find((row: any) => row.status === 'accepted')
+            || (relations && relations.length > 0 ? relations[0] : null);
+
+        setSearchResult(data);
+        setSearchRelation((relation as FriendshipRelation) || null);
         setSearching(false);
     };
 
     // Send friend request
     const handleSendRequest = async () => {
-        if (!searchResult) return;
+        if (!searchResult || searchRelation) return;
 
         setError(null);
 
@@ -269,12 +290,21 @@ export function FriendsList({ userId }: FriendsListProps) {
             });
 
         if (insertError) {
+            if (insertError.code === '23505') {
+                setError('既に申請済みです');
+                await fetchFriends();
+                setSearchResult(null);
+                setSearchRelation(null);
+                setSearchQuery('');
+                return;
+            }
             setError('申請に失敗しました');
             return;
         }
 
         await fetchFriends();
         setSearchResult(null);
+        setSearchRelation(null);
         setSearchQuery('');
     };
 
@@ -307,6 +337,16 @@ export function FriendsList({ userId }: FriendsListProps) {
 
         await fetchFriends();
     };
+
+    const incomingRequests = useMemo(
+        () => pendingRequests.filter((friend) => !friend.is_requester),
+        [pendingRequests]
+    );
+
+    const outgoingRequests = useMemo(
+        () => pendingRequests.filter((friend) => friend.is_requester),
+        [pendingRequests]
+    );
 
     // Start DM
     const handleStartChat = async (friendUserId: string) => {
@@ -350,6 +390,10 @@ export function FriendsList({ userId }: FriendsListProps) {
 
         window.location.href = `/talk/${(newRoom as any).id}`;
     };
+
+    const searchIsFriend = searchRelation?.status === 'accepted';
+    const searchIncoming = searchRelation?.status === 'pending' && searchRelation.addressee_id === userId;
+    const searchOutgoing = searchRelation?.status === 'pending' && searchRelation.requester_id === userId;
 
     if (loading) {
         return <div className="text-center py-8 text-surface-400">読み込み中...</div>;
@@ -402,17 +446,114 @@ export function FriendsList({ userId }: FriendsListProps) {
                         <p className="font-medium truncate">{searchResult.display_name}</p>
                         <p className="text-xs text-surface-500">@{searchResult.handle}</p>
                     </div>
-                    <button onClick={handleSendRequest} className="btn-primary text-sm">
-                        申請
-                    </button>
+                    {searchIsFriend ? (
+                        <button
+                            onClick={() => handleStartChat(searchResult.user_id)}
+                            className="btn-secondary text-sm"
+                        >
+                            トーク
+                        </button>
+                    ) : searchIncoming ? (
+                        <div className="flex gap-1">
+                            <button
+                                onClick={() => {
+                                    handleAccept(searchRelation!.id);
+                                    setSearchResult(null);
+                                    setSearchRelation(null);
+                                    setSearchQuery('');
+                                }}
+                                className="btn-primary text-sm"
+                            >
+                                承認
+                            </button>
+                            <button
+                                onClick={() => {
+                                    handleReject(searchRelation!.id);
+                                    setSearchResult(null);
+                                    setSearchRelation(null);
+                                    setSearchQuery('');
+                                }}
+                                className="btn-secondary text-sm"
+                            >
+                                拒否
+                            </button>
+                        </div>
+                    ) : searchOutgoing ? (
+                        <span className="text-xs text-surface-500">申請中</span>
+                    ) : (
+                        <button onClick={handleSendRequest} className="btn-primary text-sm">
+                            申請
+                        </button>
+                    )}
                 </div>
             )}
 
-            {/* Pending Requests */}
-            {pendingRequests.length > 0 && (
+            {/* Incoming Requests */}
+            {incomingRequests.length > 0 && (
                 <div className="space-y-2">
-                    <h3 className="text-sm font-medium text-surface-500">保留中</h3>
-                    {pendingRequests.map((friend) => (
+                    <h3 className="text-sm font-medium text-surface-500">申請が届いています</h3>
+                    {incomingRequests.map((friend) => {
+                        const isActive = activeIncomingId === friend.id;
+                        return (
+                            <div
+                                key={friend.id}
+                                onClick={() => setActiveIncomingId(isActive ? null : friend.id)}
+                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 cursor-pointer"
+                            >
+                                <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
+                                    {friend.avatar_path ? (
+                                        <Image
+                                            src={getStorageUrl('avatars', friend.avatar_path)}
+                                            alt={friend.display_name}
+                                            width={40}
+                                            height={40}
+                                            className="w-full h-full object-cover"
+                                        />
+                                    ) : (
+                                        <span className="text-white text-sm font-bold">{getInitials(friend.display_name)}</span>
+                                    )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-medium truncate">{friend.display_name}</p>
+                                    <p className="text-xs text-surface-500">@{friend.handle}</p>
+                                </div>
+                                {isActive ? (
+                                    <div className="flex gap-1">
+                                        <button
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                handleAccept(friend.id);
+                                                setActiveIncomingId(null);
+                                            }}
+                                            className="btn-icon p-1.5 text-success-500"
+                                        >
+                                            <CheckIcon className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                handleReject(friend.id);
+                                                setActiveIncomingId(null);
+                                            }}
+                                            className="btn-icon p-1.5 text-error-500"
+                                        >
+                                            <XMarkIcon className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <span className="text-xs text-surface-400">タップして承認</span>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Outgoing Requests */}
+            {outgoingRequests.length > 0 && (
+                <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-surface-500">申請中</h3>
+                    {outgoingRequests.map((friend) => (
                         <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
                                 {friend.avatar_path ? (
@@ -431,18 +572,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                                 <p className="font-medium truncate">{friend.display_name}</p>
                                 <p className="text-xs text-surface-500">@{friend.handle}</p>
                             </div>
-                            {friend.is_requester ? (
-                                <span className="text-xs text-surface-400">申請中</span>
-                            ) : (
-                                <div className="flex gap-1">
-                                    <button onClick={() => handleAccept(friend.id)} className="btn-icon p-1.5 text-success-500">
-                                        <CheckIcon className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => handleReject(friend.id)} className="btn-icon p-1.5 text-error-500">
-                                        <XMarkIcon className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            )}
+                            <span className="text-xs text-surface-400">申請中</span>
                         </div>
                     ))}
                 </div>
@@ -451,7 +581,9 @@ export function FriendsList({ userId }: FriendsListProps) {
             {/* Friends List */}
             {friends.length > 0 ? (
                 <div className="space-y-2">
-                    {pendingRequests.length > 0 && <h3 className="text-sm font-medium text-surface-500">友達</h3>}
+                    {(incomingRequests.length > 0 || outgoingRequests.length > 0) && (
+                        <h3 className="text-sm font-medium text-surface-500">友達</h3>
+                    )}
                     {friends.map((friend) => (
                         <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
@@ -481,7 +613,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                     ))}
                 </div>
             ) : (
-                pendingRequests.length === 0 && (
+                incomingRequests.length === 0 && outgoingRequests.length === 0 && (
                     <div className="text-center py-8 text-surface-400">
                         <p>友達がいません</p>
                         <p className="text-sm mt-1">IDを検索して友達を追加しましょう</p>

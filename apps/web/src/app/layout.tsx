@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import '@/styles/globals.css';
+import { UIInitializer } from '@/components/ui/UIInitializer';
 
 const inter = Inter({
     subsets: ['latin'],
@@ -42,6 +43,7 @@ export default function RootLayout({
     return (
         <html lang="ja" className={inter.variable} suppressHydrationWarning>
             <body className="font-sans antialiased">
+                <UIInitializer />
                 {children}
             </body>
         </html>

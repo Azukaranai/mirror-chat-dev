@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { getStorageUrl, getInitials, formatMessageTime, formatDateDivider } from '@/lib/utils';
-import { useChatStore } from '@/lib/stores';
+import { getStorageUrl, getInitials, formatMessageTime, formatDateDivider, parseSharedAIThreadCard } from '@/lib/utils';
+import { useChatStore, useOverlayStore, useSplitStore } from '@/lib/stores';
 import type { TypingPayload } from '@/types';
 
 // Icons
@@ -21,6 +22,18 @@ const PaperAirplaneIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const PaperClipIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 5.25L8.25 15.375a3 3 0 104.243 4.243L19.5 12.61a4.5 4.5 0 10-6.364-6.364L5.25 14.132" />
+    </svg>
+);
+
+const ReplyIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9.75a3 3 0 013 3v3.75m-13.5 0L3 18.75m3-3.75L3 18.75m3-3.75V8.25" />
+    </svg>
+);
+
 const reactionOptions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 interface ReactionSummary {
@@ -29,9 +42,17 @@ interface ReactionSummary {
     reacted: boolean;
 }
 
+interface AttachmentItem {
+    id: string;
+    bucket: string;
+    object_path: string;
+    mime: string;
+    size: number;
+}
+
 interface Message {
     id: string;
-    content: string;
+    content: string | null;
     kind: 'text' | 'attachment' | 'shared_ai_thread' | 'system';
     sender_user_id: string;
     sender_name: string;
@@ -39,6 +60,9 @@ interface Message {
     created_at: string;
     is_mine: boolean;
     reactions: ReactionSummary[];
+    reply_to_message_id?: string | null;
+    attachments?: AttachmentItem[];
+    sharedCard?: ReturnType<typeof parseSharedAIThreadCard>;
 }
 
 interface RoomInfo {
@@ -54,6 +78,9 @@ interface ChatRoomProps {
 
 export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const supabase = useMemo(() => createClient(), []);
+    const router = useRouter();
+    const openWindow = useOverlayStore((state) => state.openWindow);
+    const addSplitTab = useSplitStore((state) => state.addTab);
     const typingUsers = useChatStore((state) => state.typingUsers);
     const addTypingUser = useChatStore((state) => state.addTypingUser);
     const removeTypingUser = useChatStore((state) => state.removeTypingUser);
@@ -61,12 +88,16 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
     const [input, setInput] = useState('');
+    const [replyTo, setReplyTo] = useState<Message | null>(null);
+    const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+    const [attachmentError, setAttachmentError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const [loading, setLoading] = useState(true);
     const [currentUserName, setCurrentUserName] = useState<string | null>(null);
     const [openReactionPicker, setOpenReactionPicker] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const channelRef = useRef<any>(null);
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastTypingSentRef = useRef(0);
@@ -102,6 +133,57 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         },
         [userId]
     );
+
+    const formatFileSize = (size: number) => {
+        if (size < 1024) return `${size}B`;
+        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`;
+        if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)}MB`;
+        return `${(size / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+    };
+
+    const fetchAttachments = useCallback(
+        async (messageId: string) => {
+            const { data } = await supabase
+                .from('message_attachments')
+                .select('id, bucket, object_path, mime, size')
+                .eq('message_id', messageId);
+            if (!data) return;
+            setMessages((prev) =>
+                prev.map((msg) =>
+                    msg.id === messageId ? { ...msg, attachments: data as AttachmentItem[] } : msg
+                )
+            );
+        },
+        [supabase]
+    );
+
+    const handleDownloadAttachment = useCallback(
+        async (attachment: AttachmentItem) => {
+            const { data, error } = await supabase.storage
+                .from(attachment.bucket)
+                .download(attachment.object_path);
+            if (error || !data) {
+                setAttachmentError('添付ファイルの取得に失敗しました');
+                return;
+            }
+            const url = URL.createObjectURL(data);
+            window.open(url, '_blank');
+            setTimeout(() => URL.revokeObjectURL(url), 1000 * 60);
+        },
+        [supabase]
+    );
+
+    const getAttachmentName = (path: string) => {
+        const parts = path.split('/');
+        return parts[parts.length - 1] || 'file';
+    };
+
+    const scrollToMessage = (messageId: string) => {
+        const el = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
 
     const refreshReactions = useCallback(
         async (messageId: string) => {
@@ -211,9 +293,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
           id,
           content,
           kind,
+          reply_to_message_id,
           sender_user_id,
           created_at,
           profiles!messages_sender_user_id_fkey(display_name, avatar_path),
+          message_attachments(id, bucket, object_path, mime, size),
           message_reactions(reaction_type, user_id)
         `)
                 .eq('room_id', roomId)
@@ -222,15 +306,21 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             if (msgs) {
                 const formattedMsgs: Message[] = msgs.map((m: any) => {
                     const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+                    const sharedCard = m.kind === 'shared_ai_thread'
+                        ? parseSharedAIThreadCard(m.content)
+                        : null;
                     return {
                         id: m.id,
                         content: m.content,
                         kind: m.kind,
+                        reply_to_message_id: m.reply_to_message_id,
                         sender_user_id: m.sender_user_id,
                         sender_name: profile?.display_name || 'Unknown',
                         sender_avatar: profile?.avatar_path,
                         created_at: m.created_at,
                         is_mine: m.sender_user_id === userId,
+                        attachments: (m.message_attachments || []) as AttachmentItem[],
+                        sharedCard,
                         reactions: buildReactionSummary(m.message_reactions),
                     };
                 });
@@ -276,15 +366,24 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     id: newMsg.id,
                     content: newMsg.content,
                     kind: newMsg.kind,
+                    reply_to_message_id: newMsg.reply_to_message_id,
                     sender_user_id: newMsg.sender_user_id,
                     sender_name: (sender as any)?.display_name || 'Unknown',
                     sender_avatar: (sender as any)?.avatar_path,
                     created_at: newMsg.created_at,
                     is_mine: newMsg.sender_user_id === userId,
+                    attachments: [],
+                    sharedCard: newMsg.kind === 'shared_ai_thread'
+                        ? parseSharedAIThreadCard(newMsg.content)
+                        : null,
                     reactions: [],
                 };
 
                 setMessages((prev) => [...prev, formattedMsg]);
+
+                if (newMsg.kind === 'attachment') {
+                    fetchAttachments(newMsg.id);
+                }
 
                 // Update last read
                 await (supabase
@@ -308,6 +407,21 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 if (!messageId) return;
                 if (!messagesRef.current.some((msg) => msg.id === messageId)) return;
                 refreshReactions(messageId);
+            }
+        );
+
+        channel.on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'message_attachments',
+            },
+            (payload) => {
+                const record = payload.new as any;
+                if (!record?.message_id) return;
+                if (!messagesRef.current.some((msg) => msg.id === record.message_id)) return;
+                fetchAttachments(record.message_id);
             }
         );
 
@@ -337,7 +451,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             channelRef.current = null;
             setTypingUsers(roomId, []);
         };
-    }, [supabase, roomId, userId, buildReactionSummary, refreshReactions, addTypingUser, removeTypingUser, setTypingUsers]);
+    }, [supabase, roomId, userId, buildReactionSummary, refreshReactions, addTypingUser, removeTypingUser, setTypingUsers, fetchAttachments]);
 
     useEffect(() => {
         messagesRef.current = messages;
@@ -350,23 +464,66 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
     // Send message
     const handleSend = async () => {
-        if (!input.trim() || sending) return;
+        if ((!input.trim() && pendingAttachments.length === 0) || sending) return;
 
         const content = input.trim();
+        const attachmentsSnapshot = [...pendingAttachments];
+        const replySnapshot = replyTo;
         stopTyping();
         setInput('');
+        setPendingAttachments([]);
+        setReplyTo(null);
+        setAttachmentError(null);
         setSending(true);
 
         try {
-            await supabase.from('messages').insert({
-                room_id: roomId,
-                sender_user_id: userId,
-                kind: 'text',
-                content,
-            } as any);
+            const { data: newMessage, error: messageError } = await supabase
+                .from('messages')
+                .insert({
+                    room_id: roomId,
+                    sender_user_id: userId,
+                    kind: attachmentsSnapshot.length > 0 ? 'attachment' : 'text',
+                    content: content || null,
+                    reply_to_message_id: replySnapshot?.id ?? null,
+                } as any)
+                .select('id')
+                .single();
+
+            if (messageError || !newMessage) {
+                throw messageError || new Error('Failed to create message');
+            }
+
+            if (attachmentsSnapshot.length > 0) {
+                for (const file of attachmentsSnapshot) {
+                    const safeName = file.name.replace(/\s+/g, '_');
+                    const path = `${roomId}/${newMessage.id}/${Date.now()}_${safeName}`;
+                    const { error: uploadError } = await supabase.storage
+                        .from('chat-attachments')
+                        .upload(path, file, {
+                            contentType: file.type || 'application/octet-stream',
+                        });
+
+                    if (uploadError) {
+                        setAttachmentError('添付ファイルのアップロードに失敗しました');
+                        continue;
+                    }
+
+                    await supabase.from('message_attachments').insert({
+                        message_id: newMessage.id,
+                        bucket: 'chat-attachments',
+                        object_path: path,
+                        mime: file.type || 'application/octet-stream',
+                        size: file.size,
+                    } as any);
+                }
+
+                fetchAttachments(newMessage.id);
+            }
         } catch (error) {
             console.error('Failed to send message:', error);
-            setInput(content); // Restore input on error
+            setInput(content);
+            setPendingAttachments(attachmentsSnapshot);
+            setReplyTo(replySnapshot);
         } finally {
             setSending(false);
             inputRef.current?.focus();
@@ -382,6 +539,9 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
     const handleInputChange = (value: string) => {
         setInput(value);
+        if (attachmentError) {
+            setAttachmentError(null);
+        }
 
         if (!value.trim()) {
             stopTyping();
@@ -401,6 +561,41 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             sendTyping(false);
             typingTimeoutRef.current = null;
         }, 1800);
+    };
+
+    const handleAttachClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+        if (files.length === 0) return;
+
+        const maxSize = 25 * 1024 * 1024;
+        const validFiles: File[] = [];
+        let sizeError = false;
+
+        files.forEach((file) => {
+            if (file.size > maxSize) {
+                sizeError = true;
+                return;
+            }
+            validFiles.push(file);
+        });
+
+        if (sizeError) {
+            setAttachmentError('ファイルサイズは25MB以下にしてください');
+        }
+
+        if (validFiles.length > 0) {
+            setPendingAttachments((prev) => [...prev, ...validFiles]);
+        }
+
+        event.target.value = '';
+    };
+
+    const handleRemovePendingAttachment = (index: number) => {
+        setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
     };
 
     const updateReactionSummary = (
@@ -535,96 +730,188 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         </div>
 
                         {/* Messages */}
-                        {group.messages.map((msg) => (
-                            <div
-                                key={msg.id}
-                                className={`flex ${msg.is_mine ? 'justify-end' : 'justify-start'} mb-2`}
-                            >
-                                {!msg.is_mine && roomInfo?.type === 'group' && (
-                                    <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0 mr-2 mt-1">
-                                        {msg.sender_avatar ? (
-                                            <Image
-                                                src={getStorageUrl('avatars', msg.sender_avatar)}
-                                                alt={msg.sender_name}
-                                                width={32}
-                                                height={32}
-                                                className="w-full h-full object-cover"
-                                            />
-                                        ) : (
-                                            <span className="text-white text-xs font-bold">
-                                                {getInitials(msg.sender_name)}
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
-                                <div className={msg.is_mine ? 'max-w-[70%]' : 'max-w-[70%]'}>
+                        {group.messages.map((msg) => {
+                            const replyTarget = msg.reply_to_message_id
+                                ? messagesRef.current.find((m) => m.id === msg.reply_to_message_id)
+                                : null;
+                            const hasAttachments = (msg.attachments || []).length > 0;
+                            const sharedCard = msg.sharedCard;
+
+                            return (
+                                <div
+                                    key={msg.id}
+                                    data-message-id={msg.id}
+                                    className={`flex ${msg.is_mine ? 'justify-end' : 'justify-start'} mb-2`}
+                                >
                                     {!msg.is_mine && roomInfo?.type === 'group' && (
-                                        <p className="text-xs text-surface-500 mb-1">{msg.sender_name}</p>
+                                        <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0 mr-2 mt-1">
+                                            {msg.sender_avatar ? (
+                                                <Image
+                                                    src={getStorageUrl('avatars', msg.sender_avatar)}
+                                                    alt={msg.sender_name}
+                                                    width={32}
+                                                    height={32}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <span className="text-white text-xs font-bold">
+                                                    {getInitials(msg.sender_name)}
+                                                </span>
+                                            )}
+                                        </div>
                                     )}
-                                    <div
-                                        className={
-                                            msg.is_mine
-                                                ? 'message-bubble-sent'
-                                                : 'message-bubble-received'
-                                        }
-                                    >
-                                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                                        <span
-                                            className={`text-xs mt-1 block ${msg.is_mine ? 'text-white/70' : 'text-surface-400'
-                                                }`}
+                                    <div className={msg.is_mine ? 'max-w-[70%]' : 'max-w-[70%]'}>
+                                        {!msg.is_mine && roomInfo?.type === 'group' && (
+                                            <p className="text-xs text-surface-500 mb-1">{msg.sender_name}</p>
+                                        )}
+                                        <div
+                                            className={
+                                                msg.is_mine
+                                                    ? 'message-bubble-sent'
+                                                    : 'message-bubble-received'
+                                            }
                                         >
-                                            {formatMessageTime(msg.created_at)}
-                                        </span>
-                                    </div>
-                                    <div
-                                        className={`mt-1 flex flex-wrap items-center gap-1 ${msg.is_mine ? 'justify-end' : 'justify-start'
-                                            }`}
-                                    >
-                                        {msg.reactions.map((reaction) => (
-                                            <button
-                                                key={reaction.type}
-                                                onClick={() => handleToggleReaction(msg.id, reaction.type)}
-                                                className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${reaction.reacted
-                                                    ? 'border-primary-400 bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-200'
-                                                    : 'border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-900'
+                                            {replyTarget && (
+                                                <button
+                                                    onClick={() => scrollToMessage(replyTarget.id)}
+                                                    className="w-full text-left text-xs rounded-lg border border-surface-200/60 dark:border-surface-700/60 bg-surface-50/60 dark:bg-surface-800/40 px-2 py-1 mb-2"
+                                                >
+                                                    <p className="font-medium text-surface-500 dark:text-surface-300">
+                                                        {replyTarget.sender_name}
+                                                    </p>
+                                                    <p className="truncate text-surface-500">
+                                                        {replyTarget.kind === 'shared_ai_thread'
+                                                            ? '🤖 AIスレッドを共有しました'
+                                                            : replyTarget.kind === 'attachment'
+                                                                ? '📎 添付ファイル'
+                                                                : replyTarget.content || 'メッセージ'}
+                                                    </p>
+                                                </button>
+                                            )}
+
+                                            {msg.kind === 'shared_ai_thread' && sharedCard ? (
+                                                <div className="rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900 p-3 space-y-2">
+                                                    <p className="text-xs text-surface-500">AIスレッド共有</p>
+                                                    <p className="font-medium truncate">{sharedCard.titleSnapshot || 'AIスレッド'}</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <button
+                                                            onClick={() => router.push(`/ai/${sharedCard.threadId}`)}
+                                                            className="btn-secondary text-xs px-3 py-1"
+                                                        >
+                                                            開く
+                                                        </button>
+                                                        <button
+                                                            onClick={() => addSplitTab(sharedCard.threadId, sharedCard.titleSnapshot || 'AIスレッド')}
+                                                            className="btn-secondary text-xs px-3 py-1"
+                                                        >
+                                                            分割
+                                                        </button>
+                                                        <button
+                                                            onClick={() => openWindow(sharedCard.threadId)}
+                                                            className="btn-secondary text-xs px-3 py-1"
+                                                        >
+                                                            オーバーレイ
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {msg.content && (
+                                                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                                                    )}
+                                                    {hasAttachments && (
+                                                        <div className="mt-2 space-y-2">
+                                                            {(msg.attachments || []).map((attachment) => (
+                                                                <div
+                                                                    key={attachment.id}
+                                                                    className="flex items-center gap-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white/70 dark:bg-surface-900/40 px-2 py-1"
+                                                                >
+                                                                    <span className="text-sm">
+                                                                        {attachment.mime.startsWith('image/') ? '🖼️' : '📎'}
+                                                                    </span>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <p className="text-sm truncate">
+                                                                            {getAttachmentName(attachment.object_path)}
+                                                                        </p>
+                                                                        <p className="text-xs text-surface-500">
+                                                                            {formatFileSize(attachment.size)}
+                                                                        </p>
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleDownloadAttachment(attachment)}
+                                                                        className="btn-ghost text-xs px-2 py-1"
+                                                                    >
+                                                                        ダウンロード
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                            <span
+                                                className={`text-xs mt-1 block ${msg.is_mine ? 'text-white/70' : 'text-surface-400'
                                                     }`}
                                             >
-                                                {reaction.type} {reaction.count}
-                                            </button>
-                                        ))}
-                                        <div className="relative">
-                                            <button
-                                                onClick={() =>
-                                                    setOpenReactionPicker((prev) => (prev === msg.id ? null : msg.id))
-                                                }
-                                                className="px-2 py-0.5 rounded-full text-xs border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-900"
-                                            >
-                                                😊
-                                            </button>
-                                            {openReactionPicker === msg.id && (
-                                                <div
-                                                    className={`absolute bottom-full mb-1 z-10 flex gap-1 rounded-lg border border-surface-200 bg-white p-2 shadow-lg dark:border-surface-700 dark:bg-surface-900 ${msg.is_mine ? 'right-0' : 'left-0'
+                                                {formatMessageTime(msg.created_at)}
+                                            </span>
+                                        </div>
+                                        <div
+                                            className={`mt-1 flex flex-wrap items-center gap-1 ${msg.is_mine ? 'justify-end' : 'justify-start'
+                                                }`}
+                                        >
+                                            {msg.reactions.map((reaction) => (
+                                                <button
+                                                    key={reaction.type}
+                                                    onClick={() => handleToggleReaction(msg.id, reaction.type)}
+                                                    className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${reaction.reacted
+                                                        ? 'border-primary-400 bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-200'
+                                                        : 'border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-900'
                                                         }`}
                                                 >
-                                                    {reactionOptions.map((reaction) => (
-                                                        <button
-                                                            key={reaction}
-                                                            onClick={() => {
-                                                                handleToggleReaction(msg.id, reaction);
-                                                                setOpenReactionPicker(null);
-                                                            }}
-                                                            className="text-lg hover:scale-110 transition-transform"
-                                                        >
-                                                            {reaction}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
+                                                    {reaction.type} {reaction.count}
+                                                </button>
+                                            ))}
+                                            <button
+                                                onClick={() => setReplyTo(msg)}
+                                                className="px-2 py-0.5 rounded-full text-xs border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-900"
+                                            >
+                                                <ReplyIcon className="w-4 h-4" />
+                                            </button>
+                                            <div className="relative">
+                                                <button
+                                                    onClick={() =>
+                                                        setOpenReactionPicker((prev) => (prev === msg.id ? null : msg.id))
+                                                    }
+                                                    className="px-2 py-0.5 rounded-full text-xs border border-surface-200 bg-white dark:border-surface-700 dark:bg-surface-900"
+                                                >
+                                                    😊
+                                                </button>
+                                                {openReactionPicker === msg.id && (
+                                                    <div
+                                                        className={`absolute bottom-full mb-1 z-10 flex gap-1 rounded-lg border border-surface-200 bg-white p-2 shadow-lg dark:border-surface-700 dark:bg-surface-900 ${msg.is_mine ? 'right-0' : 'left-0'
+                                                            }`}
+                                                    >
+                                                        {reactionOptions.map((reaction) => (
+                                                            <button
+                                                                key={reaction}
+                                                                onClick={() => {
+                                                                    handleToggleReaction(msg.id, reaction);
+                                                                    setOpenReactionPicker(null);
+                                                                }}
+                                                                className="text-lg hover:scale-110 transition-transform"
+                                                            >
+                                                                {reaction}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 ))}
                 <div ref={messagesEndRef} />
@@ -644,7 +931,73 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         </div>
                     </div>
                 )}
+                {replyTo && (
+                    <div className="mb-2 flex items-center justify-between rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/50 px-3 py-2 text-xs">
+                        <div className="min-w-0">
+                            <p className="font-medium text-surface-500 dark:text-surface-300">
+                                {replyTo.sender_name} への返信
+                            </p>
+                            <p className="truncate text-surface-500">
+                                {replyTo.kind === 'shared_ai_thread'
+                                    ? '🤖 AIスレッドを共有しました'
+                                    : replyTo.kind === 'attachment'
+                                        ? '📎 添付ファイル'
+                                        : replyTo.content || 'メッセージ'}
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setReplyTo(null)}
+                            className="btn-icon p-1.5 text-surface-500"
+                            aria-label="返信をキャンセル"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
+                {pendingAttachments.length > 0 && (
+                    <div className="mb-2 space-y-2">
+                        {pendingAttachments.map((file, index) => (
+                            <div
+                                key={`${file.name}-${index}`}
+                                className="flex items-center gap-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-2 py-1 text-xs"
+                            >
+                                <span className="text-sm">
+                                    {file.type.startsWith('image/') ? '🖼️' : '📎'}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate">{file.name}</p>
+                                    <p className="text-surface-500">{formatFileSize(file.size)}</p>
+                                </div>
+                                <button
+                                    onClick={() => handleRemovePendingAttachment(index)}
+                                    className="btn-ghost text-xs px-2 py-1"
+                                >
+                                    削除
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {attachmentError && (
+                    <div className="mb-2 text-xs text-error-600 dark:text-error-400">
+                        {attachmentError}
+                    </div>
+                )}
                 <div className="flex items-end gap-2">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={handleFilesSelected}
+                    />
+                    <button
+                        onClick={handleAttachClick}
+                        className="btn-secondary p-2.5 rounded-full flex-shrink-0"
+                        type="button"
+                    >
+                        <PaperClipIcon className="w-5 h-5" />
+                    </button>
                     <div className="flex-1 relative">
                         <textarea
                             ref={inputRef}
@@ -659,7 +1012,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     </div>
                     <button
                         onClick={handleSend}
-                        disabled={!input.trim() || sending}
+                        disabled={(!input.trim() && pendingAttachments.length === 0) || sending}
                         className="btn-primary p-2.5 rounded-full flex-shrink-0"
                     >
                         <PaperAirplaneIcon className="w-5 h-5" />

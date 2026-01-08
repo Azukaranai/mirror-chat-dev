@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { RoomList } from '@/components/chat/RoomList';
-import { ChatRoom } from '@/components/chat/ChatRoom';
+import { ChatSplitLayout } from '@/components/chat/ChatSplitLayout';
 
 interface TalkRoomPageProps {
     params: Promise<{ roomId: string }>;
@@ -38,7 +38,7 @@ export default async function TalkRoomPage({ params }: TalkRoomPageProps) {
 
             {/* Chat Room */}
             <div className="flex-1 flex flex-col min-w-0">
-                <ChatRoom roomId={roomId} userId={user.id} />
+                <ChatSplitLayout roomId={roomId} userId={user.id} />
             </div>
         </div>
     );

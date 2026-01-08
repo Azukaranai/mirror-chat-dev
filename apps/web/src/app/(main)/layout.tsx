@@ -24,7 +24,7 @@ export default async function MainLayout({
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <main className="flex-1 flex flex-col min-h-0 overflow-hidden safe-top">
                 {children}
             </main>
 

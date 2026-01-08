@@ -40,77 +40,78 @@
 - [x] 友達検索・追加・承認 (`FriendsList.tsx`)
 - [x] グループ作成・招待・管理 (`GroupsList.tsx`)
 
-### Phase 3: トーク機能（3-4日） 🚧 **進行中**
+### Phase 3: トーク機能（3-4日） ✅ **完了**
 - [x] ルーム一覧表示 (`RoomList.tsx`)
 - [x] メッセージ送受信 (`ChatRoom.tsx`)
 - [x] 既読機能 (自動更新ロジック実装済み)
 - [x] 入力中（typing）表示
 - [x] リアクション
-- [ ] ファイル添付
-- [ ] 引用返信
+- [x] ファイル添付
+- [x] 引用返信
 
-### Phase 4: AIスレッド基本機能（2-3日） 🚧 **進行中**
+### Phase 4: AIスレッド基本機能（2-3日） ✅ **完了**
 - [x] スレッド一覧/作成/表示 (`ThreadList.tsx`, `AIThreadView.tsx`)
 - [x] Edge Function: `ai_send_message` (実装完了)
 - [x] AIストリーミング受信ロジック (Client & Edge)
 - [x] リネーム/削除/アーカイブ
-- [ ] スレッド複製（Duplicate）
-- [ ] APIキー登録モーダル
+- [x] スレッド複製（Duplicate）
+- [x] APIキー登録モーダル
 - [x] Edge Function: `key_set`, `key_delete`
 
-### Phase 5: AIストリーミング（2日） 🚧 **一部完了**
+### Phase 5: AIストリーミング（2日） ✅ **完了**
 - [x] ai_stream_events購読 (実装済み)
 - [x] リアルタイムストリーミング表示 (実装済み)
 - [x] Edge Function: ai_process_queue
 
-### Phase 6: 共有カード・オーバーレイ（3-4日）
-- [ ] 共有カード送信
-- [ ] オーバーレイ表示（ドラッグ/リサイズ/Z順/最小化）
-- [ ] Desktopスプリット（右ペイン+タブ）
-- [ ] Mobileスプリット（上下分割）
-- [ ] localStorage状態保存/復元
+### Phase 6: 共有カード・オーバーレイ（3-4日） ✅ **完了**
+- [x] 共有カード送信
+- [x] オーバーレイ表示（ドラッグ/リサイズ/Z順/最小化）
+- [x] Desktopスプリット（右ペイン+タブ）
+- [x] Mobileスプリット（上下分割）
+- [x] localStorage状態保存/復元
 
-### Phase 7: 介入機能（2日）
-- [ ] VIEW/INTERVENE権限管理
-- [ ] 介入キュー（ai_queue_items）
-- [ ] 権限剥奪時のキュー破棄
-- [ ] リアルタイム権限変更反映
+### Phase 7: 介入機能（2日） ✅ **完了**
+- [x] VIEW/INTERVENE権限管理
+- [x] 介入キュー（ai_queue_items）
+- [x] 権限剥奪時のキュー破棄
+- [x] リアルタイム権限変更反映
 
-### Phase 8: 設定・仕上げ（1-2日）
-- [ ] 文字サイズ設定
-- [ ] Mobile最適化
-- [ ] パフォーマンス最適化
-- [ ] E2Eテスト
+### Phase 8: 設定・仕上げ（1-2日） ✅ **完了**
+- [x] 文字サイズ設定
+- [x] Mobile最適化
+- [x] パフォーマンス最適化
+- [x] E2Eテスト
 
 ---
 
 ## 申し送り事項 (Current Status & Handover Notes)
 
 ### 現在の状況
-- **削除されたファイルの復元**: UIコンポーネント群（Profile, Friends, Groups, Chat, AI）は全て復元され、Supabase型エラー（`never`型問題）は`any`キャスト等で修正済み。ビルドは通る状態。
-- **AI機能**: `ai_send_message` エッジ関数は実装され、OpenAI APIへのストリーミングリクエストとDB保存を行うようになっている。ただし、環境変数の設定が必要。
+- **トーク機能**: 添付ファイル、引用返信、リアクション、共有カード表示/送信まで実装済み。
+- **AI機能**: スレッド複製、APIキー登録（設定/モーダル）、共有・権限管理、介入キュー、オーバーレイ/スプリット連携まで実装済み。
 
 ### 抱えている問題 (Known Issues)
 1. **型安全性 (Type Safety)**:
    - Supabaseの型定義と実際のクエリで使用する型との不整合が多く、`as any` キャストで回避している箇所が多数ある（`ChatRoom.tsx`, `FriendsList.tsx` 等）。
    - 将来的にはジェネリクスを正しく使用するか、型定義を見直すべき。
 2. **APIキー管理**:
-   - 現在はシステム環境変数 `OPENAI_API_KEY` に依存。
-   - ユーザーごとのAPIキー設定機能（UIおよび Backend `key_set`）が未実装。
+   - `ENCRYPTION_SECRET` が未設定だと `key_set`/`key_delete` が失敗する。
 3. **Edge Functions**:
-   - `ai_send_message` は実装済みだが、デプロイされていない可能性がある。
-   - `key_set`, `key_delete` は未実装。暗号化ロジックが必要。
+   - `ai_send_message`/`ai_process_queue`/`ai_duplicate_thread`/`key_set`/`key_delete` のデプロイが必要。
 
 ### 次に取り組むべきタスク
 1. **Supabase Edge Functions デプロイ**:
    - `supabase functions deploy ai_send_message`
-   - 環境変数の設定: `supabase secrets set OPENAI_API_KEY=sk-...`
-2. **APIキー管理の実装**:
-   - 設定画面 (`settings/page.tsx`) の実装
-   - `key_set`, `key_delete` Edge Functionsの実装（暗号化）
-3. **UIのブラッシュアップ**:
-   - メッセージ送信時のUX改善（楽観的UI更新は一部実装済み）
-   - エラーハンドリングの強化
+   - `supabase functions deploy ai_process_queue`
+   - `supabase functions deploy ai_duplicate_thread`
+   - `supabase functions deploy key_set`
+   - `supabase functions deploy key_delete`
+2. **Supabase Secrets**:
+   - `supabase secrets set ENCRYPTION_SECRET=...`
+   - （任意）`OPENAI_API_KEY` は共通キーを使う場合のみ設定
+3. **E2Eテスト実行**:
+   - `cd apps/web && npx playwright install`
+   - `cd apps/web && npm run test:e2e`
 
 ---
 
