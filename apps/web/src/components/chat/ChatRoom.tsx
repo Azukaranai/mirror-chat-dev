@@ -1210,7 +1210,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             }
                         }}
                         placeholder="メッセージを検索..."
-                        className="flex-1 text-sm py-1.5 px-3 rounded-lg bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                        className="flex-1 text-sm py-1.5 px-4 rounded-full bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
                         autoFocus
                     />
                     {searchResults.length > 0 && (
