@@ -10,8 +10,10 @@ export default function SettingsPage() {
     const router = useRouter();
     const supabase = useMemo(() => createClient(), []);
     const { theme, setTheme, fontScale, setFontScale } = useUIStore();
+
+    const [provider, setProvider] = useState<'openai' | 'google'>('openai');
     const [apiKey, setApiKey] = useState('');
-    const [apiKeyLast4, setApiKeyLast4] = useState<string | null>(null);
+    const [savedKeys, setSavedKeys] = useState<{ openai?: string; google?: string }>({});
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -29,23 +31,31 @@ export default function SettingsPage() {
         { value: 'system', label: 'システム設定' },
     ];
 
+    const providerOptions = [
+        { value: 'openai', label: 'OpenAI (GPT-4)' },
+        { value: 'google', label: 'Google (Gemini Pro)' },
+    ];
+
     useEffect(() => {
         let canceled = false;
 
-        const loadApiKey = async () => {
+        const loadApiKeys = async () => {
             const { data, error } = await supabase
                 .from('user_llm_keys')
-                .select('key_last4')
-                .maybeSingle();
+                .select('provider, key_last4');
 
-            const keyLast4 = (data as { key_last4?: string } | null)?.key_last4;
-
-            if (!canceled && !error && keyLast4) {
-                setApiKeyLast4(keyLast4);
+            if (!canceled && !error && data) {
+                const keys: { openai?: string; google?: string } = {};
+                data.forEach((row) => {
+                    if (row.provider === 'openai' || row.provider === 'google') {
+                        keys[row.provider] = row.key_last4;
+                    }
+                });
+                setSavedKeys(keys);
             }
         };
 
-        loadApiKey();
+        loadApiKeys();
 
         return () => {
             canceled = true;
@@ -66,15 +76,15 @@ export default function SettingsPage() {
 
         try {
             const { data, error } = await supabase.functions.invoke('key_set', {
-                body: { apiKey: apiKey.trim() },
+                body: { apiKey: apiKey.trim(), provider },
             });
 
             if (error) {
                 setMessage({ type: 'error', text: 'APIキーの保存に失敗しました' });
             } else {
-                setApiKeyLast4(data.last4);
+                setSavedKeys(prev => ({ ...prev, [provider]: data.last4 }));
                 setApiKey('');
-                setMessage({ type: 'success', text: 'APIキーを保存しました' });
+                setMessage({ type: 'success', text: `${providerOptions.find(p => p.value === provider)?.label} のAPIキーを保存しました` });
             }
         } catch {
             setMessage({ type: 'error', text: 'エラーが発生しました' });
@@ -89,12 +99,25 @@ export default function SettingsPage() {
         setSaving(true);
 
         try {
-            const { error } = await supabase.functions.invoke('key_delete');
+            // Note: key_delete function needs update to accept provider or we need new function
+            // For now, let's assume we update key_delete or just use raw delete here?
+            // Safer to use function but function needs update. 
+            // Let's implement direct delete here for simplicity as we have RLS?
+            // Actually RLS allows delete own keys.
+            const { error } = await supabase
+                .from('user_llm_keys')
+                .delete()
+                .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+                .eq('provider', provider);
 
             if (error) {
                 setMessage({ type: 'error', text: '削除に失敗しました' });
             } else {
-                setApiKeyLast4(null);
+                setSavedKeys(prev => {
+                    const next = { ...prev };
+                    delete next[provider as 'openai' | 'google'];
+                    return next;
+                });
                 setMessage({ type: 'success', text: 'APIキーを削除しました' });
             }
         } catch {
@@ -112,6 +135,8 @@ export default function SettingsPage() {
     const handleThemeChange = (newTheme: Theme) => {
         setTheme(newTheme);
     };
+
+    const currentKeyLast4 = savedKeys[provider as 'openai' | 'google'];
 
     return (
         <div className="flex-1 overflow-auto">
@@ -163,47 +188,78 @@ export default function SettingsPage() {
 
                 {/* API Key */}
                 <section className="card p-4 md:p-6 space-y-4">
-                    <h2 className="text-lg font-semibold">OpenAI APIキー</h2>
+                    <h2 className="text-lg font-semibold">AI APIキー設定</h2>
                     <p className="text-sm text-surface-500 dark:text-surface-400">
-                        AIスレッド機能を使用するには、OpenAIのAPIキーが必要です。
-                        キーはサーバーで暗号化して保存されます。
+                        使用するAIモデルのプロバイダーを選択し、APIキーを設定してください。
                     </p>
 
-                    {apiKeyLast4 && (
-                        <div className="flex items-center gap-2 p-3 bg-success-500/10 rounded-lg">
-                            <span className="text-success-600 dark:text-success-400">✓</span>
-                            <span className="text-sm">
-                                APIキーが登録されています（末尾: ...{apiKeyLast4}）
-                            </span>
-                        </div>
-                    )}
-
-                    <div className="flex gap-2">
-                        <input
-                            type="password"
-                            value={apiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            placeholder="sk-..."
-                            className="input flex-1"
-                        />
-                        <button
-                            onClick={handleSaveApiKey}
-                            disabled={saving || !apiKey.trim()}
-                            className="btn-primary"
-                        >
-                            {saving ? '保存中...' : '保存'}
-                        </button>
+                    {/* Provider Tabs */}
+                    <div className="flex border-b border-surface-200 dark:border-surface-700">
+                        {providerOptions.map((opt) => (
+                            <button
+                                key={opt.value}
+                                onClick={() => {
+                                    setProvider(opt.value as any);
+                                    setMessage(null);
+                                    setApiKey('');
+                                }}
+                                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${provider === opt.value
+                                        ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                                        : 'border-transparent text-surface-500 hover:text-surface-700 dark:hover:text-surface-300'
+                                    }`}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
                     </div>
 
-                    {apiKeyLast4 && (
-                        <button
-                            onClick={handleDeleteApiKey}
-                            disabled={saving}
-                            className="btn-danger"
-                        >
-                            APIキーを削除
-                        </button>
-                    )}
+                    <div className="pt-2">
+                        {currentKeyLast4 ? (
+                            <div className="flex items-center gap-2 p-3 bg-success-500/10 rounded-lg mb-4">
+                                <span className="text-success-600 dark:text-success-400">✓</span>
+                                <span className="text-sm">
+                                    {providerOptions.find(p => p.value === provider)?.label} のキーが登録されています（末尾: ...{currentKeyLast4}）
+                                </span>
+                            </div>
+                        ) : (
+                            <div className="p-3 bg-surface-100 dark:bg-surface-800 rounded-lg mb-4 text-sm text-surface-500">
+                                {provider === 'openai' ? (
+                                    <>OpenAI APIキー (sk-...) を入力してください。<br />ChatGPT PlusではなくAPIのクレジットが必要です。</>
+                                ) : (
+                                    <>Google Gemini APIキーを入力してください。<br />Google AI Studioで無料で取得可能です。</>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2">
+                            <input
+                                type="password"
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                placeholder={provider === 'openai' ? "sk-..." : "AI..."}
+                                className="input flex-1"
+                            />
+                            <button
+                                onClick={handleSaveApiKey}
+                                disabled={saving || !apiKey.trim()}
+                                className="btn-primary"
+                            >
+                                {saving ? '保存中...' : '保存'}
+                            </button>
+                        </div>
+
+                        {currentKeyLast4 && (
+                            <div className="mt-4">
+                                <button
+                                    onClick={handleDeleteApiKey}
+                                    disabled={saving}
+                                    className="btn-danger text-sm"
+                                >
+                                    このキーを削除
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     {message && (
                         <div

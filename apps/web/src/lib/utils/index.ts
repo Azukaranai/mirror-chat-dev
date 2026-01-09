@@ -182,14 +182,15 @@ export function generateId(): string {
  */
 export function parseSharedAIThreadCard(content: string | null): {
     threadId: string;
-    ownerUserId: string;
-    titleSnapshot: string;
-    sharedAt: string;
+    ownerUserId?: string;
+    titleSnapshot?: string;
+    modelSnapshot?: string;
+    sharedAt?: string;
 } | null {
     if (!content) return null;
     try {
         const parsed = JSON.parse(content);
-        if (parsed.threadId && parsed.ownerUserId) {
+        if (parsed.threadId) {
             return parsed;
         }
     } catch {

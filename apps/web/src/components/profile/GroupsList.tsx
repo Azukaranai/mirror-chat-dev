@@ -114,19 +114,23 @@ export function GroupsList({ userId }: GroupsListProps) {
                 .single();
 
             if (groupError || !newGroup) {
-                setError('グループの作成に失敗しました');
+                setError(groupError?.message || 'グループの作成に失敗しました');
                 return;
             }
 
             // Add owner as member
-            await supabase.from('group_members').insert({
+            const { error: memberError } = await supabase.from('group_members').insert({
                 group_id: (newGroup as any).id,
                 user_id: userId,
                 role: 'owner',
             } as any);
+            if (memberError) {
+                setError(memberError.message || 'グループメンバーの登録に失敗しました');
+                return;
+            }
 
             // Create room for group
-            const { data: newRoom } = await supabase
+            const { data: newRoom, error: roomError } = await supabase
                 .from('rooms')
                 .insert({
                     type: 'group',
@@ -134,13 +138,19 @@ export function GroupsList({ userId }: GroupsListProps) {
                 } as any)
                 .select()
                 .single();
+            if (roomError || !newRoom) {
+                setError(roomError?.message || 'ルームの作成に失敗しました');
+                return;
+            }
 
             // Add owner to room
-            if (newRoom) {
-                await supabase.from('room_members').insert({
-                    room_id: (newRoom as any).id,
-                    user_id: userId,
-                } as any);
+            const { error: roomMemberError } = await supabase.from('room_members').insert({
+                room_id: (newRoom as any).id,
+                user_id: userId,
+            } as any);
+            if (roomMemberError) {
+                setError(roomMemberError.message || 'ルームへの参加に失敗しました');
+                return;
             }
 
             setGroups([...groups, {

@@ -40,6 +40,7 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [creating, setCreating] = useState(false);
+    const [createError, setCreateError] = useState<string | null>(null);
 
     // Fetch threads
     useEffect(() => {
@@ -98,6 +99,7 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
     // Create new thread
     const handleNewThread = async () => {
         setCreating(true);
+        setCreateError(null);
 
         const { data: newThread, error } = await supabase
             .from('ai_threads')
@@ -111,6 +113,11 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
 
         if (!error && newThread) {
             router.push(`/ai/${(newThread as any).id}`);
+        } else if (error) {
+            console.error('Failed to create thread:', error);
+            setCreateError(error.message || 'スレッドの作成に失敗しました');
+        } else {
+            setCreateError('スレッドの作成に失敗しました');
         }
 
         setCreating(false);
@@ -150,6 +157,11 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
                         </>
                     )}
                 </button>
+                {createError && (
+                    <div className="mt-2 text-xs text-error-600 dark:text-error-400">
+                        {createError}
+                    </div>
+                )}
             </div>
 
             {/* Search */}

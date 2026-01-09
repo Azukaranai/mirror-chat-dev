@@ -350,58 +350,16 @@ export function FriendsList({ userId }: FriendsListProps) {
 
     // Start DM
     const handleStartChat = async (friendUserId: string) => {
-        // Check if DM room exists
-        const { data: existingRooms } = await supabase
-            .from('room_members')
-            .select('room_id, rooms!inner(type)')
-            .eq('user_id', userId);
+        const { data: roomId, error } = await supabase.rpc('create_dm_room', {
+            friend_id: friendUserId,
+        });
 
-        const { data: friendRooms } = await supabase
-            .from('room_members')
-            .select('room_id')
-            .eq('user_id', friendUserId);
-
-        const myRoomIds = existingRooms?.filter((r: any) => r.rooms.type === 'dm').map((r: any) => r.room_id) || [];
-        const friendRoomIds = friendRooms?.map((r: any) => r.room_id) || [];
-        const commonRoom = myRoomIds.find((id: string) => friendRoomIds.includes(id));
-
-        if (commonRoom) {
-            window.location.href = `/talk/${commonRoom}`;
+        if (error || !roomId) {
+            setError(error?.message || 'ルームの作成に失敗しました');
             return;
         }
 
-        // Create new DM room
-        const { data: newRoom, error: roomError } = await supabase
-            .from('rooms')
-            .insert({ type: 'dm' } as any)
-            .select()
-            .single();
-
-        if (roomError || !newRoom) {
-            setError('ルームの作成に失敗しました');
-            return;
-        }
-
-        // Add self first (RLS), then friend
-        const { error: selfJoinError } = await supabase.from('room_members').insert([
-            { room_id: (newRoom as any).id, user_id: userId },
-        ] as any);
-
-        if (selfJoinError) {
-            setError('ルームへの参加に失敗しました');
-            return;
-        }
-
-        const { error: friendJoinError } = await supabase.from('room_members').insert([
-            { room_id: (newRoom as any).id, user_id: friendUserId },
-        ] as any);
-
-        if (friendJoinError) {
-            setError('相手の追加に失敗しました');
-            return;
-        }
-
-        window.location.href = `/talk/${(newRoom as any).id}`;
+        window.location.href = `/talk/${roomId}`;
     };
 
     const searchIsFriend = searchRelation?.status === 'accepted';

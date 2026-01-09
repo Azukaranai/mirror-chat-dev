@@ -1,251 +1,141 @@
-# Mirror Chat - 実装計画書
+# Mirror Chat - 実装計画書（再設計版）
 
-## プロジェクト概要
-**Mirror Chat**は「LINE/Discord型の通常チャット」＋「ChatGPT風のAIスレッド」を同一UIで提供し、AIスレッドを"共有カード"としてトークに送信→受け手がリアルタイム閲覧・介入できるアプリケーション。
+## 目的と前提
+- 目的: 要件定義で指定された機能を全て維持しつつ、データ取得・UI・リアルタイムの設計を安定運用向けに再設計する。
+- インフラ: 現行の Supabase + Cloudflare Pages を継続利用。
+- 料金: 無料枠で運用可能な構成を優先。
+- 想定規模: 初期は10人程度（仲間内で利用）。
+- AI: ユーザ個別APIキー継続。
+- 通知: アプリ内のみ（Push/メールは後回し）。
 
----
-
-## 技術スタック
-
-| カテゴリ | 技術 | 理由 |
-|---------|------|------|
-| Frontend | Next.js 14 (App Router) + TypeScript | モダンなReactフレームワーク |
-| Styling | Tailwind CSS v3 | 仕様書で指定 |
-| State管理 | Zustand | 軽量で使いやすい |
-| Backend | Supabase | Auth/DB/Realtime/Storage/Edge Functions統合 |
-| AI実行 | Supabase Edge Functions (Deno) | OpenAI API呼び出し |
-| Hosting | Vercel Free | WebSocket不要（Supabase Realtimeで代替） |
+## 重要方針
+- 取得ロジックは「N+1削減」「一覧は集計済みを読む」を基本にする。
+- リアルタイムは Supabase Realtime（postgres_changes + broadcast）で賄う。
+- 画面遷移で再マウントしない構成（RoomListはレイアウトで固定）。
+- エラーはUIに表示して利用者に原因が見える状態にする。
 
 ---
 
-## フェーズ別実装計画
-
-### Phase 1: 基盤構築（1-2日） ✅ **完了**
-- [x] Next.js + Tailwind プロジェクト初期化
-- [x] ディレクトリ構造作成
-- [x] Supabase マイグレーションSQL作成（4ファイル）
-- [x] 基本UIコンポーネント（ナビゲーション、オーバーレイ）
-- [x] Supabase クライアント設定（ブラウザ/サーバー/ミドルウェア）
-- [x] 認証フロー（ログイン/新規登録ページ）
-- [x] メインレイアウト（Desktop左サイドバー / Mobileボトムナビ）
-- [x] 型定義（Database types）
-- [x] Zustandストア（Auth, UI, Overlay, Split, Chat, AI）
-- [x] Edge Functions雛形（key_set, key_delete, ai_send_message）
-
-**注意**: Supabaseプロジェクトの作成と環境変数の設定が必要です。
-
-### Phase 2: プロフィール・友達・グループ（2-3日） ✅ **完了**
-- [x] プロフィール表示/編集 (`ProfileView.tsx`)
-- [x] アバターアップロード (UI実装済み、Backend未確認)
-- [x] 友達検索・追加・承認 (`FriendsList.tsx`)
-- [x] グループ作成・招待・管理 (`GroupsList.tsx`)
-
-### Phase 3: トーク機能（3-4日） ✅ **完了**
-- [x] ルーム一覧表示 (`RoomList.tsx`)
-- [x] メッセージ送受信 (`ChatRoom.tsx`)
-- [x] 既読機能 (自動更新ロジック実装済み)
-- [x] 入力中（typing）表示
-- [x] リアクション
-- [x] ファイル添付
-- [x] 引用返信
-
-### Phase 4: AIスレッド基本機能（2-3日） ✅ **完了**
-- [x] スレッド一覧/作成/表示 (`ThreadList.tsx`, `AIThreadView.tsx`)
-- [x] Edge Function: `ai_send_message` (実装完了)
-- [x] AIストリーミング受信ロジック (Client & Edge)
-- [x] リネーム/削除/アーカイブ
-- [x] スレッド複製（Duplicate）
-- [x] APIキー登録モーダル
-- [x] Edge Function: `key_set`, `key_delete`
-
-### Phase 5: AIストリーミング（2日） ✅ **完了**
-- [x] ai_stream_events購読 (実装済み)
-- [x] リアルタイムストリーミング表示 (実装済み)
-- [x] Edge Function: ai_process_queue
-
-### Phase 6: 共有カード・オーバーレイ（3-4日） ✅ **完了**
-- [x] 共有カード送信
-- [x] オーバーレイ表示（ドラッグ/リサイズ/Z順/最小化）
-- [x] Desktopスプリット（右ペイン+タブ）
-- [x] Mobileスプリット（上下分割）
-- [x] localStorage状態保存/復元
-
-### Phase 7: 介入機能（2日） ✅ **完了**
-- [x] VIEW/INTERVENE権限管理
-- [x] 介入キュー（ai_queue_items）
-- [x] 権限剥奪時のキュー破棄
-- [x] リアルタイム権限変更反映
-
-### Phase 8: 設定・仕上げ（1-2日） ✅ **完了**
-- [x] 文字サイズ設定
-- [x] Mobile最適化
-- [x] パフォーマンス最適化
-- [x] E2Eテスト
+## 機能スコープ（維持）
+- 認証: 登録/ログイン/プロフィール/アバター
+- 友達: 申請・承認・一覧・検索
+- トーク: DM/グループ、メッセージ送受信、既読、返信、添付
+- AI: スレッド作成、送受信、共有、介入、オーバーレイ/スプリット
+- システム通知: Mirror運営アカウントからの配信
 
 ---
 
-## 申し送り事項 (Current Status & Handover Notes)
-
-### 現在の状況
-- **トーク機能**: 添付ファイル、引用返信、リアクション、共有カード表示/送信まで実装済み。
-- **AI機能**: スレッド複製、APIキー登録（設定/モーダル）、共有・権限管理、介入キュー、オーバーレイ/スプリット連携まで実装済み。
-
-### 抱えている問題 (Known Issues)
-1. **型安全性 (Type Safety)**:
-   - Supabaseの型定義と実際のクエリで使用する型との不整合が多く、`as any` キャストで回避している箇所が多数ある（`ChatRoom.tsx`, `FriendsList.tsx` 等）。
-   - 将来的にはジェネリクスを正しく使用するか、型定義を見直すべき。
-2. **APIキー管理**:
-   - `ENCRYPTION_SECRET` が未設定だと `key_set`/`key_delete` が失敗する。
-3. **Edge Functions**:
-   - `ai_send_message`/`ai_process_queue`/`ai_duplicate_thread`/`key_set`/`key_delete` のデプロイが必要。
-
-### 次に取り組むべきタスク
-1. **Supabase Edge Functions デプロイ**:
-   - `supabase functions deploy ai_send_message`
-   - `supabase functions deploy ai_process_queue`
-   - `supabase functions deploy ai_duplicate_thread`
-   - `supabase functions deploy key_set`
-   - `supabase functions deploy key_delete`
-2. **Supabase Secrets**:
-   - `supabase secrets set ENCRYPTION_SECRET=...`
-   - （任意）`OPENAI_API_KEY` は共通キーを使う場合のみ設定
-3. **E2Eテスト実行**:
-   - `cd apps/web && npx playwright install`
-   - `cd apps/web && npm run test:e2e`
+## システム構成（無料枠前提）
+- Frontend: Next.js App Router
+- Backend: Supabase (PostgREST + Realtime + Edge Functions)
+- Storage: Supabase Storage（avatars / chat-attachments）
+- Hosting: Cloudflare Pages
+- Realtime
+  - メッセージ: `postgres_changes` on `messages`
+  - タイピング: `broadcast` event
+  - 友達申請/承認: `postgres_changes` on `friendships`
+  - AIストリーム: `postgres_changes` on `ai_stream_events`
 
 ---
 
-## ディレクトリ構造
+## データ設計（重要変更点）
+### 1) 参照の安定化
+- `messages.sender_user_id` は `auth.users` にFKがあるが、`profiles` へのJOINで失敗するため、
+  追加のFKを用意して PostgRESTの埋め込みを安定化する。
+  - 追加案: `ALTER TABLE messages ADD CONSTRAINT messages_sender_profile_fkey FOREIGN KEY (sender_user_id) REFERENCES profiles(user_id);`
 
-```
-mirror-chat-dev/
-├── apps/
-│   └── web/                          # Next.js アプリケーション
-│       ├── app/
-│       │   ├── (auth)/               # 認証関連ページ
-│       │   │   ├── login/
-│       │   │   └── register/
-│       │   ├── (main)/               # メインアプリ
-│       │   │   ├── profile/
-│       │   │   ├── talk/
-│       │   │   │   └── [roomId]/
-│       │   │   ├── ai/
-│       │   │   │   └── [threadId]/
-│       │   │   └── settings/
-│       │   ├── layout.tsx
-│       │   └── page.tsx
-│       ├── components/
-│       │   ├── nav/                  # ナビゲーション
-│       │   ├── chat/                 # チャットUI
-│       │   ├── ai/                   # AIスレッドUI
-│       │   ├── overlay/              # オーバーレイ
-│       │   ├── split/                # スプリット表示
-│       │   └── ui/                   # 共通UIコンポーネント
-│       ├── lib/
-│       │   ├── supabase/             # Supabaseクライアント
-│       │   ├── stores/               # Zustand stores
-│       │   └── utils/                # ユーティリティ
-│       ├── hooks/                    # カスタムフック
-│       ├── types/                    # 型定義
-│       └── styles/                   # グローバルスタイル
-├── supabase/
-│   ├── migrations/                   # DBマイグレーション
-│   └── functions/                    # Edge Functions
-│       ├── ai_send_message/
-│       ├── ai_process_queue/
-│       ├── ai_duplicate_thread/
-│       ├── key_set/
-│       └── key_delete/
-├── docs/                             # ドキュメント
-└── README.md
-```
+### 2) ルーム一覧の軽量化
+- **room_summaries（テーブル or view）** を導入
+  - 各ユーザ×ルームの「最後のメッセージ」「未読数」「相手情報」を集計済みで保持
+  - `messages` 追加時に trigger で更新
+
+### 3) 既読
+- `room_members.last_read_message_id` を更新
+- 未読数は `room_summaries.unread_count` を保持（triggerで更新）
+
+### 4) 添付ファイル
+- `message_attachments` は別取得（必要時のみ）
 
 ---
 
-## データベーススキーマ概要
+## API / 取得パターン（目標）
+### ルーム一覧
+- RPCまたは `room_summaries` を直接読み込む
+- 画面遷移で再ロードせず、リアルタイム差分だけ反映
 
-### コアテーブル
-| テーブル | 説明 |
-|----------|------|
-| profiles | ユーザープロフィール |
-| friendships | 友達関係 |
-| groups | グループ |
-| group_members | グループメンバー |
-| rooms | チャットルーム（DM/グループ統一） |
-| room_members | ルームメンバー |
-| messages | メッセージ |
-| message_reactions | リアクション |
-| message_attachments | 添付ファイル |
+### メッセージ一覧
+- 初期: 最新N件取得
+- 追加: ページネーション
+- リアルタイム: `messages` insert を購読して末尾に追加
 
-### AIスレッド関連
-| テーブル | 説明 |
-|----------|------|
-| ai_threads | AIスレッド |
-| ai_thread_members | スレッド共有メンバー |
-| ai_messages | AI会話履歴 |
-| ai_queue_items | 介入キュー |
-| ai_runs | 実行管理 |
-| ai_stream_events | ストリーミング差分 |
-
-### セキュリティ
-| テーブル | 説明 |
-|----------|------|
-| user_llm_keys | 暗号化APIキー |
+### 送信
+- `messages` insert -> triggerで room_summaries 更新
+- 失敗時は UI にエラーを表示
 
 ---
 
-## RLS（Row Level Security）方針
-
-全テーブルでRLSを有効化し、以下のポリシーを適用：
-
-1. **profiles**: 本人のみ更新、全員参照可
-2. **friendships**: 当事者のみ参照/更新
-3. **rooms/messages**: room_membersのみ参照
-4. **ai_threads**: owner + ai_thread_members のみ参照
-5. **ai_thread_members**: ownerのみ変更可
-6. **ai_queue_items**: INTERVENE権限持ちのみ作成可
+## リアルタイム設計（無料枠優先）
+- メッセージ本文: `postgres_changes` を購読
+- 既読: クライアント側で last_read を更新し、RoomListは差分更新
+- タイピング: `broadcast` のみ（DB書き込み無し）
+- 大量通知は不要（初期10人規模）
 
 ---
 
-## リアルタイム設計
-
-### Supabase Realtime活用
-- **DB Changes**: messages, reactions, ai_messages, ai_stream_events
-- **Broadcast**: typing（揮発的）
-
-### クライアント購読パターン
-```typescript
-// メッセージ購読
-supabase.channel(`room:${roomId}`)
-  .on('postgres_changes', { 
-    event: 'INSERT', 
-    schema: 'public', 
-    table: 'messages',
-    filter: `room_id=eq.${roomId}`
-  }, handleNewMessage)
-  .subscribe()
-
-// AIストリーミング購読
-supabase.channel(`ai:${threadId}`)
-  .on('postgres_changes', {
-    event: 'INSERT',
-    schema: 'public',
-    table: 'ai_stream_events',
-    filter: `thread_id=eq.${threadId}`
-  }, handleStreamDelta)
-  .subscribe()
-```
+## セキュリティ / RLS
+- RLSは現状維持
+- profilesは現状通り全員参照可（検索/表示用途）
+- 重要処理は Edge Functions へ寄せる（AI/キー管理）
 
 ---
 
-## 次のアクション
+## 移行計画（段階導入）
+### Step 1: DB補強
+- [ ] `messages -> profiles` のFK追加
+- [ ] `room_summaries` テーブル or view 作成
+- [ ] `messages` insert trigger で room_summaries 更新
 
-1. ✅ 実装計画書作成
-2. 🔄 Next.js プロジェクト初期化
-3. 🔄 Supabase マイグレーションSQL作成
-4. 🔄 基本ナビゲーション実装
-5. ⏳ Supabaseプロジェクト設定（ユーザー操作必要）
+### Step 2: 取得ロジック刷新
+- [ ] RoomList: `room_summaries` を読むように修正
+- [ ] ChatRoom: 埋め込みJOINを使える構成に整理
+- [ ] 既読更新と未読数の一致を検証
+
+### Step 3: UI/UX修正
+- [ ] 返信UI/吹き出し幅/アイコン欠け等の微調整
+- [ ] 再読み込みで履歴が消える問題の解消
 
 ---
 
-*最終更新: 2026-01-08*
+## 課題とスタックタスク
+- [ ] メール認証必須化（Auth設定 + UI/フロー更新）
+- [ ] AIスレッドの統合動作テスト（共有/介入/ストリーム）
+- [ ] パフォーマンス改善（クエリ回数削減・キャッシュ）
+
+---
+
+## 進捗管理
+- 現行の実装は機能単位で完了しているが、
+  **取得方式とリアルタイム設計が再設計の対象**。
+- 実装は「Step 1 → Step 2 → Step 3」の順で進める。
+
+---
+
+## Telegram-Clone 参照による改善ポイント（全体設計）
+以下は Telegram-Clone の構成を参照し、Mirror Chat に合わせて再設計する改善点。
+
+### フロントエンド（状態管理/表示）
+- **チャット履歴キャッシュ**: ルームID単位でメッセージ履歴を保持し、ルーム切替で再取得しない。
+- **一覧と詳細の分離**: chatList と chatHistory を分離し、一覧更新で詳細を巻き込まない。
+- **入力体験**: 下書き保存（ルーム単位）、送信直後の楽観表示、再送制御。
+- **描画最適化**: メッセージリストの差分更新（既存IDは上書きしない）。
+
+### バックエンド（取得/リアルタイム/整合性）
+- **room_summaries 経由**で一覧を取得し、N+1を排除。
+- **メッセージ取得のページング**: 初期は最新N件、スクロールで過去分取得。
+- **ルーム作成の一括処理**: RPCでルーム＋メンバー追加を原子的に実行。
+
+### 実装タスク（追加）
+- [ ] Chat Storeに `messageCache` / `chatListCache` を追加
+- [ ] ルーム切替時はキャッシュ優先で描画、差分だけフェッチ
+- [ ] 入力下書きの保存/復元（ルーム単位）
+- [ ] メッセージ取得をページング化（最新N件 + 過去取得）

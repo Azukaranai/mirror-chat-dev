@@ -33,7 +33,7 @@ serve(async (req: Request) => {
             });
         }
 
-        const { apiKey } = await req.json();
+        const { apiKey, provider = 'openai' } = await req.json();
 
         if (!apiKey || typeof apiKey !== 'string') {
             return new Response(JSON.stringify({ error: 'Invalid API key' }), {
@@ -59,7 +59,7 @@ serve(async (req: Request) => {
             user_id: user.id,
             encrypted_key: encryptedKey,
             key_last4: last4,
-            provider: 'openai',
+            provider: provider,
         });
         if (upsertError) {
             throw upsertError;
