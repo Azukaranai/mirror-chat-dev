@@ -90,7 +90,8 @@ export function FriendsList({ userId }: FriendsListProps) {
             .eq('addressee_id', userId);
 
         if (requesterError || addresseeError) {
-            setError('友達情報の取得に失敗しました');
+            console.error('Friendships fetch error:', requesterError || addresseeError);
+            setError(`友達情報の取得に失敗しました: ${(requesterError || addresseeError)?.message || '不明なエラー'}`);
             setLoading(false);
             return;
         }
@@ -108,7 +109,8 @@ export function FriendsList({ userId }: FriendsListProps) {
                 .in('user_id', Array.from(friendIds));
 
             if (profilesError) {
-                setError('友達情報の取得に失敗しました');
+                console.error('Profiles fetch error:', profilesError);
+                setError(`友達情報の取得に失敗しました: ${profilesError?.message || '不明なエラー'}`);
                 setLoading(false);
                 return;
             }

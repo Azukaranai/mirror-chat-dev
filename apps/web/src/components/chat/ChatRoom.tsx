@@ -444,7 +444,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
           reply_to_message_id,
           sender_user_id,
           created_at,
-          message_attachments(id, bucket, object_path, mime, size),
+          message_attachments(id, bucket, object_path, mime, size)
         `)
                 .eq('room_id', roomId)
                 .order('created_at', { ascending: true });
@@ -452,7 +452,8 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             let messageRows = msgs as any[] | null;
 
             if (msgsError || !messageRows) {
-                setLoadError('メッセージの取得に失敗しました');
+                console.error('Messages fetch error:', msgsError);
+                setLoadError(`メッセージの取得に失敗しました: ${msgsError?.message || 'データがありません'}`);
                 setLoading(false);
                 return;
             }
