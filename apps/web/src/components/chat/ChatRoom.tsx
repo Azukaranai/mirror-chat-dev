@@ -113,6 +113,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [actionMenuStyles, setActionMenuStyles] = useState<React.CSSProperties>({});
     const [roomMenuOpen, setRoomMenuOpen] = useState(false);
     const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(false);
+    // In-chat search
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<string[]>([]); // message IDs
+    const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
     const [threadStatus, setThreadStatus] = useState<
         Record<
             string,
@@ -1131,6 +1136,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     <h2 className="font-semibold truncate">{roomInfo?.name || 'トーク'}</h2>
                 </div>
 
+                {/* Search button */}
+                <button
+                    onClick={() => { setSearchOpen(!searchOpen); if (!searchOpen) setSearchQuery(''); }}
+                    className={cn('btn-icon p-2', searchOpen && 'bg-primary-100 dark:bg-primary-900/30 text-primary-600')}
+                    aria-label="検索"
+                >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                    </svg>
+                </button>
+
                 {/* Room menu */}
                 <div className="relative">
                     <button
@@ -1169,6 +1185,80 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     )}
                 </div>
             </header>
+
+            {/* In-chat Search Bar */}
+            {searchOpen && (
+                <div className="flex items-center gap-2 px-4 py-2 border-b border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-900">
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => {
+                            const query = e.target.value;
+                            setSearchQuery(query);
+                            if (query.trim()) {
+                                const matchedIds = messages
+                                    .filter((m) => m.content && m.content.toLowerCase().includes(query.toLowerCase()))
+                                    .map((m) => m.id);
+                                setSearchResults(matchedIds);
+                                setCurrentSearchIndex(matchedIds.length > 0 ? matchedIds.length - 1 : 0);
+                                if (matchedIds.length > 0) {
+                                    scrollToMessage(matchedIds[matchedIds.length - 1]);
+                                }
+                            } else {
+                                setSearchResults([]);
+                                setCurrentSearchIndex(0);
+                            }
+                        }}
+                        placeholder="メッセージを検索..."
+                        className="flex-1 text-sm py-1.5 px-3 rounded-lg bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                        autoFocus
+                    />
+                    {searchResults.length > 0 && (
+                        <span className="text-xs text-surface-500 whitespace-nowrap">
+                            {currentSearchIndex + 1} / {searchResults.length}
+                        </span>
+                    )}
+                    <button
+                        onClick={() => {
+                            if (searchResults.length === 0) return;
+                            const prevIndex = currentSearchIndex > 0 ? currentSearchIndex - 1 : searchResults.length - 1;
+                            setCurrentSearchIndex(prevIndex);
+                            scrollToMessage(searchResults[prevIndex]);
+                        }}
+                        disabled={searchResults.length === 0}
+                        className="btn-icon p-1.5 disabled:opacity-30"
+                        aria-label="前の結果"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => {
+                            if (searchResults.length === 0) return;
+                            const nextIndex = currentSearchIndex < searchResults.length - 1 ? currentSearchIndex + 1 : 0;
+                            setCurrentSearchIndex(nextIndex);
+                            scrollToMessage(searchResults[nextIndex]);
+                        }}
+                        disabled={searchResults.length === 0}
+                        className="btn-icon p-1.5 disabled:opacity-30"
+                        aria-label="次の結果"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchResults([]); }}
+                        className="btn-icon p-1.5"
+                        aria-label="閉じる"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            )}
 
             {/* Confirm Delete Modal */}
             {confirmDeleteRoom && (

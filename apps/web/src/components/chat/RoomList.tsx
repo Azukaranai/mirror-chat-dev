@@ -33,6 +33,16 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const [contextMenuRoomId, setContextMenuRoomId] = useState<string | null>(null);
     const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+    // Global message search
+    const [messageSearchResults, setMessageSearchResults] = useState<Array<{
+        id: string;
+        content: string;
+        room_id: string;
+        room_name: string;
+        sender_name: string;
+        created_at: string;
+    }>>([]);
+    const [isSearchingMessages, setIsSearchingMessages] = useState(false);
 
     // Initialize Supabase client on mount
     useEffect(() => {
@@ -190,6 +200,78 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
         room.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
+    // Global message search
+    useEffect(() => {
+        if (!supabase || searchQuery.length < 2) {
+            setMessageSearchResults([]);
+            return;
+        }
+
+        const searchMessages = async () => {
+            setIsSearchingMessages(true);
+            try {
+                // Search messages where user is a member of the room
+                const { data: myRooms } = await supabase
+                    .from('room_members')
+                    .select('room_id')
+                    .eq('user_id', userId);
+
+                if (!myRooms || myRooms.length === 0) {
+                    setMessageSearchResults([]);
+                    setIsSearchingMessages(false);
+                    return;
+                }
+
+                const roomIds = myRooms.map((r: any) => r.room_id);
+
+                const { data: messages } = await supabase
+                    .from('messages')
+                    .select('id, content, room_id, sender_user_id, created_at')
+                    .in('room_id', roomIds)
+                    .eq('kind', 'text')
+                    .ilike('content', `%${searchQuery}%`)
+                    .order('created_at', { ascending: false })
+                    .limit(20);
+
+                if (!messages || messages.length === 0) {
+                    setMessageSearchResults([]);
+                    setIsSearchingMessages(false);
+                    return;
+                }
+
+                // Get room names and sender names
+                const uniqueRoomIds = Array.from(new Set(messages.map((m: any) => m.room_id)));
+                const uniqueSenderIds = Array.from(new Set(messages.map((m: any) => m.sender_user_id)));
+
+                const [roomsData, profilesData] = await Promise.all([
+                    supabase.from('room_summaries').select('room_id, room_name').in('room_id', uniqueRoomIds).eq('user_id', userId),
+                    supabase.from('profiles').select('user_id, display_name').in('user_id', uniqueSenderIds)
+                ]);
+
+                const roomMap = new Map((roomsData.data || []).map((r: any) => [r.room_id, r.room_name]));
+                const profileMap = new Map((profilesData.data || []).map((p: any) => [p.user_id, p.display_name]));
+
+                const results = messages.map((m: any) => ({
+                    id: m.id,
+                    content: m.content,
+                    room_id: m.room_id,
+                    room_name: roomMap.get(m.room_id) || 'Unknown',
+                    sender_name: profileMap.get(m.sender_user_id) || 'Unknown',
+                    created_at: m.created_at,
+                }));
+
+                setMessageSearchResults(results);
+            } catch (e) {
+                console.error('Message search error:', e);
+                setMessageSearchResults([]);
+            }
+            setIsSearchingMessages(false);
+        };
+
+        const debounce = setTimeout(searchMessages, 300);
+        return () => clearTimeout(debounce);
+    }, [supabase, searchQuery, userId]);
+
     if (loading) {
         return (
             <div className="flex-1 flex items-center justify-center">
@@ -213,6 +295,38 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
 
             {/* Room List */}
             <div className="flex-1 overflow-auto px-2">
+                {/* Message Search Results */}
+                {searchQuery.length >= 2 && (
+                    <div className="mb-4">
+                        <p className="text-xs font-medium text-surface-500 px-2 py-2 uppercase tracking-wider">
+                            メッセージ検索結果
+                            {isSearchingMessages && <span className="ml-2 text-primary-500">検索中...</span>}
+                        </p>
+                        {messageSearchResults.length > 0 ? (
+                            messageSearchResults.map((result) => (
+                                <Link
+                                    key={result.id}
+                                    href={`/talk/${result.room_id}?highlight=${result.id}`}
+                                    className="flex flex-col gap-1 p-3 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-primary-600 dark:text-primary-400 font-medium">{result.room_name}</span>
+                                        <span className="text-xs text-surface-400">•</span>
+                                        <span className="text-xs text-surface-500">{result.sender_name}</span>
+                                    </div>
+                                    <p className="text-sm text-surface-700 dark:text-surface-300 line-clamp-2">
+                                        {result.content?.length > 100 ? result.content.substring(0, 100) + '...' : result.content}
+                                    </p>
+                                </Link>
+                            ))
+                        ) : !isSearchingMessages ? (
+                            <p className="text-sm text-surface-400 px-2 py-4">メッセージが見つかりません</p>
+                        ) : null}
+                    </div>
+                )}
+
+                {/* Rooms */}
+                <p className="text-xs font-medium text-surface-500 px-2 py-2 uppercase tracking-wider">トーク一覧</p>
                 {filteredRooms.length > 0 ? (
                     filteredRooms.map((room) => (
                         <Link
