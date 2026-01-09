@@ -100,7 +100,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                 return;
             }
 
-            profilesById = (profiles || []).reduce((acc, profile) => {
+            profilesById = (profiles || []).reduce((acc, profile: any) => {
                 acc[profile.user_id] = profile;
                 return acc;
             }, {} as Record<string, { user_id: string; display_name: string; handle: string; avatar_path: string | null }>);
@@ -247,7 +247,7 @@ export function FriendsList({ userId }: FriendsListProps) {
             || (relations && relations.length > 0 ? relations[0] : null);
 
         setSearchResult(data);
-        setSearchRelation((relation as FriendshipRelation) || null);
+        setSearchRelation((relation as unknown as FriendshipRelation) || null);
         setSearching(false);
     };
 
@@ -264,11 +264,11 @@ export function FriendsList({ userId }: FriendsListProps) {
             .eq('addressee_id', userId)
             .maybeSingle();
 
-        if (!reverseError && reverseRequest?.id && reverseRequest.status === 'pending') {
+        if (!reverseError && (reverseRequest as any)?.id && (reverseRequest as any).status === 'pending') {
             const { error: acceptError } = await (supabase
                 .from('friendships') as any)
                 .update({ status: 'accepted' })
-                .eq('id', reverseRequest.id);
+                .eq('id', (reverseRequest as any).id);
 
             if (acceptError) {
                 setError('申請の承認に失敗しました');
@@ -350,7 +350,7 @@ export function FriendsList({ userId }: FriendsListProps) {
 
     // Start DM
     const handleStartChat = async (friendUserId: string) => {
-        const { data: roomId, error } = await supabase.rpc('create_dm_room', {
+        const { data: roomId, error } = await (supabase.rpc as any)('create_dm_room', {
             friend_id: friendUserId,
         });
 

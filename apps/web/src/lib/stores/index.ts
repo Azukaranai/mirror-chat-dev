@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Theme, FontScale, UserSettings, NavItem, OverlayWindow, SplitTab } from '@/types';
+import { isMobile } from '@/lib/utils';
 
 // ============================================
 // Auth Store
@@ -119,7 +120,7 @@ export const useOverlayStore = create<OverlayState>()(
                     width: DEFAULT_WINDOW_SIZE.width,
                     height: DEFAULT_WINDOW_SIZE.height,
                     zIndex: nextZIndex,
-                    minimized: false,
+                    minimized: isMobile(),
                 };
 
                 set({
@@ -264,6 +265,11 @@ interface ChatState {
     currentRoomId: string | null;
     setCurrentRoomId: (roomId: string | null) => void;
 
+    // New message signal - incremented when a new message arrives for any room
+    // ChatRoom listens to this and refetches if it matches its roomId
+    newMessageSignal: { roomId: string; messageId: string; timestamp: number } | null;
+    emitNewMessage: (roomId: string, messageId: string) => void;
+
     // Typing indicators
     typingUsers: Map<string, TypingIndicator[]>; // roomId -> users
     setTypingUsers: (roomId: string, users: TypingIndicator[]) => void;
@@ -274,6 +280,10 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set) => ({
     currentRoomId: null,
     setCurrentRoomId: (currentRoomId) => set({ currentRoomId }),
+
+    newMessageSignal: null,
+    emitNewMessage: (roomId, messageId) =>
+        set({ newMessageSignal: { roomId, messageId, timestamp: Date.now() } }),
 
     typingUsers: new Map(),
     setTypingUsers: (roomId, users) =>
@@ -369,5 +379,33 @@ export const useAIStore = create<AIState>((set) => ({
             const newSet = new Set(state.runningThreads);
             newSet.delete(threadId);
             return { runningThreads: newSet };
+        }),
+}));
+
+// ============================================
+// Cache Store
+// ============================================
+
+interface CacheState {
+    threadCache: Map<string, any>;
+    roomCache: Map<string, any>;
+    setThreadCache: (id: string, data: any) => void;
+    setRoomCache: (id: string, data: any) => void;
+}
+
+export const useCacheStore = create<CacheState>((set) => ({
+    threadCache: new Map(),
+    roomCache: new Map(),
+    setThreadCache: (id, data) =>
+        set((state) => {
+            const newMap = new Map(state.threadCache);
+            newMap.set(id, data);
+            return { threadCache: newMap };
+        }),
+    setRoomCache: (id, data) =>
+        set((state) => {
+            const newMap = new Map(state.roomCache);
+            newMap.set(id, data);
+            return { roomCache: newMap };
         }),
 }));

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { createSharedAIThreadCard } from '@/lib/utils';
+import { createSharedAIThreadCard, cn, getStorageUrl, getInitials } from '@/lib/utils';
 import { useAIStore } from '@/lib/stores';
 import type { AIThread } from '@/types/database';
 
@@ -42,6 +42,18 @@ const ArchiveIcon = ({ className }: { className?: string }) => (
 const TrashIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 7.5h12m-10.5 0V6a1.5 1.5 0 011.5-1.5h3A1.5 1.5 0 0113.5 6v1.5m-7.5 0l.75 12A1.5 1.5 0 008.25 21h7.5a1.5 1.5 0 001.5-1.5l.75-12" />
+    </svg>
+);
+
+const ChevronDownIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+    </svg>
+);
+
+const EllipsisVerticalIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
     </svg>
 );
 
@@ -95,6 +107,7 @@ export function AIThreadView({
     permission = null,
     variant = 'page',
 }: AIThreadViewProps) {
+    const getProvider = (model: string) => model.startsWith('gemini') ? 'google' : 'openai';
     const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
     const [messages, setMessages] = useState<AIMessage[]>([]);
@@ -107,25 +120,34 @@ export function AIThreadView({
     const [actionStatus, setActionStatus] = useState<'archive' | 'delete' | null>(null);
     const [currentPermission, setCurrentPermission] = useState<'VIEW' | 'INTERVENE' | null>(permission);
     const [queueNotice, setQueueNotice] = useState<string | null>(null);
-    const [apiKeyLast4, setApiKeyLast4] = useState<string | null>(null);
+    const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+    const apiKeyLast4 = apiKeys[getProvider(thread?.model || 'gpt-5.2')] || null;
     const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
     const [apiKeyInput, setApiKeyInput] = useState('');
     const [apiKeySaving, setApiKeySaving] = useState(false);
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
     const [membersOpen, setMembersOpen] = useState(false);
     const [members, setMembers] = useState<Array<{ user_id: string; display_name: string; handle: string; avatar_path: string | null; permission: 'VIEW' | 'INTERVENE' }>>([]);
-    const [ownerProfile, setOwnerProfile] = useState<{ display_name: string; handle: string; avatar_path: string | null } | null>(null);
     const [memberSearch, setMemberSearch] = useState('');
     const [memberSearchResult, setMemberSearchResult] = useState<{ user_id: string; display_name: string; handle: string; avatar_path: string | null } | null>(null);
     const [memberPermission, setMemberPermission] = useState<'VIEW' | 'INTERVENE'>('VIEW');
     const [memberError, setMemberError] = useState<string | null>(null);
+    const [ownerProfile, setOwnerProfile] = useState<{ display_name: string; handle: string | null; avatar_path: string | null } | null>(null);
     const [shareOpen, setShareOpen] = useState(false);
     const [shareRooms, setShareRooms] = useState<Array<{ id: string; name: string; avatar_path: string | null; type: 'dm' | 'group' }>>([]);
     const [shareLoading, setShareLoading] = useState(false);
     const [shareError, setShareError] = useState<string | null>(null);
+    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+    // Auto-scroll logic
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const queueKickRef = useRef(0);
+    const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const initialScrollDone = useRef(false);
 
     // Use store with updated definition
     const streamingContent = useAIStore(state => state.streamingContent);
@@ -162,8 +184,30 @@ export function AIThreadView({
     );
 
     // Scroll to bottom
-    const scrollToBottom = useCallback(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+        const scroll = () => {
+            const container = scrollContainerRef.current;
+            if (!container) return;
+
+            if (behavior === 'auto') {
+                container.scrollTop = container.scrollHeight;
+            } else {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        };
+
+        requestAnimationFrame(() => {
+            scroll();
+            if (behavior === 'auto') {
+                // Retry multiple times for mobile rendering delays
+                setTimeout(scroll, 100);
+                setTimeout(scroll, 300);
+                setTimeout(scroll, 500);
+            }
+        });
     }, []);
 
     const kickQueue = useCallback(async () => {
@@ -197,8 +241,8 @@ export function AIThreadView({
                 .select('user_id, display_name, handle, avatar_path')
                 .in('user_id', memberIds);
 
-            profilesById = (profiles || []).reduce((acc, profile) => {
-                acc[profile.user_id] = profile as any;
+            profilesById = (profiles || []).reduce((acc, profile: any) => {
+                acc[profile.user_id] = profile;
                 return acc;
             }, {} as Record<string, { user_id: string; display_name: string; handle: string; avatar_path: string | null }>);
         }
@@ -225,7 +269,8 @@ export function AIThreadView({
                 .select('display_name, handle, avatar_path')
                 .eq('user_id', thread.owner_user_id)
                 .maybeSingle();
-            setOwnerProfile((owner as any) || null);
+            // This ownerProfile is for the members list, not the header.
+            // setOwnerProfile((owner as any) || null);
         }
     }, [supabase, threadId, thread?.owner_user_id]);
 
@@ -253,27 +298,64 @@ export function AIThreadView({
     }, [supabase, threadId, userId, isOwner, permission]);
 
     useEffect(() => {
-        if (!isOwner) return;
+        if (!userId) return;
         let canceled = false;
 
-        const loadApiKey = async () => {
+        const loadApiKeys = async () => {
             const { data } = await supabase
                 .from('user_llm_keys')
-                .select('key_last4')
-                .eq('user_id', userId)
-                .maybeSingle();
+                .select('provider, key_last4')
+                .eq('user_id', userId);
 
-            if (!canceled) {
-                setApiKeyLast4((data as any)?.key_last4 || null);
+            if (!canceled && data) {
+                const keys: Record<string, string> = {};
+                data.forEach((row: any) => {
+                    keys[row.provider] = row.key_last4;
+                });
+                setApiKeys(keys);
             }
         };
 
-        loadApiKey();
+        loadApiKeys();
 
-        return () => {
-            canceled = true;
+        return () => { canceled = true; };
+    }, [supabase, userId]);
+
+    useEffect(() => {
+        if (!isOwner) return;
+
+        const loadThread = async () => {
+            const { data } = await supabase
+                .from('ai_threads')
+                .select('*')
+                .eq('id', threadId)
+                .single();
+            if (data) {
+                setThread(data);
+            }
         };
-    }, [supabase, userId, isOwner]);
+
+        if (threadId && !thread) {
+            loadThread();
+        }
+    }, [threadId, thread, supabase, isOwner]);
+
+    // Fetch owner profile
+    useEffect(() => {
+        if (thread?.owner_user_id) {
+            const fetchOwner = async () => {
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('display_name, avatar_path, handle')
+                    .eq('user_id', thread.owner_user_id)
+                    .single();
+                if (data) {
+                    setOwnerProfile(data);
+                }
+            };
+            fetchOwner();
+        }
+    }, [thread?.owner_user_id, supabase]);
 
     // Fetch messages
     useEffect(() => {
@@ -458,7 +540,16 @@ export function AIThreadView({
 
     // Scroll on new messages
     useEffect(() => {
-        scrollToBottom();
+        if (messages.length > 0 || currentStream) {
+            if (!initialScrollDone.current) {
+                // Initial load: jump to bottom
+                scrollToBottom('auto');
+                initialScrollDone.current = true;
+            } else {
+                // New messages: smooth scroll
+                scrollToBottom('smooth');
+            }
+        }
     }, [messages, currentStream, scrollToBottom]);
 
     useEffect(() => {
@@ -466,6 +557,23 @@ export function AIThreadView({
             fetchMembers();
         }
     }, [membersOpen, fetchMembers, isOwner]);
+
+    // Scroll handling
+    const handleScroll = () => {
+        if (!scrollContainerRef.current) return;
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+        setShowScrollToBottom(!isNearBottom);
+    };
+
+    const handleInputChange = (value: string) => {
+        setInput(value);
+        if (inputRef.current) {
+            inputRef.current.style.height = '38px'; // Reset
+            const scrollHeight = inputRef.current.scrollHeight;
+            inputRef.current.style.height = Math.min(scrollHeight, 128) + 'px';
+        }
+    };
 
     // Send message
     const handleSend = async () => {
@@ -565,23 +673,48 @@ export function AIThreadView({
         setApiKeySaving(true);
         setApiKeyError(null);
 
+        const provider = (thread?.model || 'gpt-5.2').startsWith('gemini') ? 'google' : 'openai';
+
         try {
             const { data, error } = await supabase.functions.invoke('key_set', {
-                body: { apiKey: apiKeyInput.trim() },
+                body: { apiKey: apiKeyInput.trim(), provider },
             });
 
             if (error) {
-                setApiKeyError('APIキーの保存に失敗しました');
+                console.error('Failed to save API key:', error);
+                const errorMsg = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
+                setApiKeyError(`保存に失敗しました: ${errorMsg}`);
                 return;
             }
 
-            setApiKeyLast4(data?.last4 || null);
+            setApiKeys(prev => ({ ...prev, [provider]: data?.last4 }));
             setApiKeyModalOpen(false);
             setApiKeyInput('');
-        } catch {
-            setApiKeyError('APIキーの保存に失敗しました');
+        } catch (e: any) {
+            console.error('Exception saving API key:', e);
+            setApiKeyError(`保存に失敗しました: ${e.message || '不明なエラー'}`);
         } finally {
             setApiKeySaving(false);
+        }
+    };
+
+    const handleUpdateModel = async (modelId: string) => {
+        if (!threadId) return;
+
+        const previousModel = thread?.model;
+        // Optimistic update
+        setThread((prev: any) => ({ ...prev, model: modelId }));
+
+        const { error } = await (supabase
+            .from('ai_threads') as any)
+            .update({ model: modelId })
+            .eq('id', threadId);
+
+        if (error) {
+            console.error('Failed to update model:', error);
+            // Revert
+            setThread((prev: any) => ({ ...prev, model: previousModel }));
+            alert('モデルの変更に失敗しました');
         }
     };
 
@@ -589,60 +722,28 @@ export function AIThreadView({
         setShareLoading(true);
         setShareError(null);
 
-        const { data: memberOf } = await supabase
-            .from('room_members')
-            .select('room_id, rooms!inner(id, type, group_id)')
-            .eq('user_id', userId);
+        try {
+            const { data: summaries, error } = await supabase
+                .from('room_summaries')
+                .select('room_id, room_name, room_avatar_path, room_type')
+                .eq('user_id', userId);
 
-        if (!memberOf) {
-            setShareRooms([]);
+            if (error) throw error;
+
+            const roomList = (summaries || []).map((summary: any) => ({
+                id: summary.room_id,
+                name: summary.room_name || '名称未設定トーク',
+                avatar_path: summary.room_avatar_path,
+                type: summary.room_type as 'dm' | 'group',
+            }));
+
+            setShareRooms(roomList);
+        } catch (e) {
+            console.error('Failed to fetch rooms:', e);
+            setShareError('ルーム一覧の取得に失敗しました');
+        } finally {
             setShareLoading(false);
-            return;
         }
-
-        const roomList: Array<{ id: string; name: string; avatar_path: string | null; type: 'dm' | 'group' }> = [];
-
-        for (const m of memberOf as any[]) {
-            const room = Array.isArray(m.rooms) ? m.rooms[0] : m.rooms;
-            let name = '';
-            let avatarPath: string | null = null;
-
-            if (room.type === 'dm') {
-                const { data: otherMember } = await supabase
-                    .from('room_members')
-                    .select('user_id, profiles!inner(display_name, avatar_path)')
-                    .eq('room_id', room.id)
-                    .neq('user_id', userId)
-                    .single();
-
-                if (otherMember) {
-                    const profile = (otherMember as any).profiles;
-                    name = Array.isArray(profile) ? profile[0].display_name : profile.display_name;
-                    avatarPath = Array.isArray(profile) ? profile[0].avatar_path : profile.avatar_path;
-                }
-            } else if (room.group_id) {
-                const { data: group } = await supabase
-                    .from('groups')
-                    .select('name, avatar_path')
-                    .eq('id', room.group_id)
-                    .single();
-
-                if (group) {
-                    name = (group as any).name;
-                    avatarPath = (group as any).avatar_path;
-                }
-            }
-
-            roomList.push({
-                id: room.id,
-                name: name || 'トーク',
-                avatar_path: avatarPath,
-                type: room.type,
-            });
-        }
-
-        setShareRooms(roomList);
-        setShareLoading(false);
     }, [supabase, userId]);
 
     const handleShareToRoom = async (roomId: string) => {
@@ -661,7 +762,8 @@ export function AIThreadView({
             return;
         }
 
-        if (isOwner) {
+        // Try to add members (best effort)
+        try {
             const { data: members } = await supabase
                 .from('room_members')
                 .select('user_id')
@@ -683,6 +785,8 @@ export function AIThreadView({
                         { onConflict: 'thread_id,user_id' }
                     );
             }
+        } catch (err) {
+            console.error('Failed to add members:', err);
         }
 
         setShareOpen(false);
@@ -705,12 +809,12 @@ export function AIThreadView({
             return;
         }
 
-        if (thread?.owner_user_id === profile.user_id) {
+        if (thread?.owner_user_id === (profile as any).user_id) {
             setMemberError('オーナーは既に参加しています');
             return;
         }
 
-        if (members.some((m) => m.user_id === profile.user_id)) {
+        if (members.some((m) => m.user_id === (profile as any).user_id)) {
             setMemberError('既に追加済みです');
             return;
         }
@@ -856,6 +960,11 @@ export function AIThreadView({
         alert('共有リンクをコピーしました');
     };
 
+    const MODEL_OPTIONS = [
+        { id: 'gpt-5.2', label: 'OpenAI API' },
+        { id: 'gemini-3.0', label: 'Gemini API' },
+    ];
+
     if (loading) {
         return (
             <div className="flex-1 flex items-center justify-center">
@@ -865,111 +974,295 @@ export function AIThreadView({
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full relative">
             {/* Header */}
-            {!isEmbedded && (
-                <header className="flex items-center gap-3 px-4 py-3 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900">
+            <header className="flex items-center gap-3 px-4 py-3 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900">
+                {!isEmbedded && (
                     <Link href="/ai" className="md:hidden btn-icon">
                         <ArrowLeftIcon className="w-5 h-5" />
                     </Link>
-                    <div className="flex-1 min-w-0">
-                        {editingTitle ? (
-                            <input
-                                type="text"
-                                value={newTitle}
-                                onChange={(e) => setNewTitle(e.target.value)}
-                                onBlur={handleUpdateTitle}
-                                onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle()}
-                                className="input py-1 text-lg font-semibold"
-                                autoFocus
-                            />
-                        ) : (
-                            <div className="flex items-center gap-2">
-                                <h2 className="font-semibold truncate">{thread?.title || 'AIスレッド'}</h2>
-                                {isOwner && (
-                                    <button
-                                        onClick={() => {
-                                            setNewTitle(thread?.title || '');
-                                            setEditingTitle(true);
-                                        }}
-                                        className="btn-icon p-1"
-                                    >
-                                        <PencilIcon className="w-4 h-4" />
-                                    </button>
-                                )}
-                                {isArchived && (
-                                    <span className="px-2 py-0.5 text-xs rounded-full bg-surface-200 text-surface-600 dark:bg-surface-800 dark:text-surface-300">
-                                        アーカイブ済み
-                                    </span>
-                                )}
-                            </div>
-                        )}
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-surface-500">
-                            <span>{thread?.model || 'gpt-4o'}</span>
+                )}
+                <div className="flex-1 min-w-0">
+                    {editingTitle ? (
+                        <input
+                            type="text"
+                            value={newTitle}
+                            onChange={(e) => setNewTitle(e.target.value)}
+                            onBlur={handleUpdateTitle}
+                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateTitle()}
+                            className="w-full py-1.5 px-4 text-lg font-semibold rounded-full bg-surface-100 dark:bg-surface-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-surface-900 focus:ring-2 focus:ring-primary-500/20 transition-all outline-none shadow-sm"
+                            autoFocus
+                        />
+                    ) : (
+                        <div className="flex items-center gap-2">
+                            <h2 className="font-semibold truncate">{thread?.title || 'AIスレッド'}</h2>
                             {isOwner && (
-                                <span>
-                                    {hasApiKey ? `APIキー登録済み (...${apiKeyLast4})` : 'APIキー未登録'}
+                                <button
+                                    onClick={() => {
+                                        setNewTitle(thread?.title || '');
+                                        setEditingTitle(true);
+                                    }}
+                                    className="btn-icon p-1"
+                                >
+                                    <PencilIcon className="w-4 h-4" />
+                                </button>
+                            )}
+                            {isArchived && (
+                                <span className="px-2 py-0.5 text-xs rounded-full bg-surface-200 text-surface-600 dark:bg-surface-800 dark:text-surface-300">
+                                    アーカイブ済み
                                 </span>
                             )}
                         </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-surface-500 mt-1.5 leading-none">
+                        {isOwner ? (
+                            <div className="relative flex items-center">
+                                <select
+                                    value={thread?.model || 'gpt-5.2'}
+                                    onChange={(e) => handleUpdateModel(e.target.value)}
+                                    className="appearance-none bg-transparent border-none p-0 pr-3.5 text-xs text-surface-600 dark:text-surface-400 font-medium focus:ring-0 cursor-pointer hover:text-surface-900 dark:hover:text-surface-200 transition-colors"
+                                >
+                                    {MODEL_OPTIONS.map((option) => {
+                                        const isRegistered = Boolean(apiKeys[getProvider(option.id)]);
+                                        return (
+                                            <option key={option.id} value={option.id}>
+                                                {option.label}
+                                                {isRegistered ? ' (✅登録済み)' : ''}
+                                            </option>
+                                        );
+                                    })}
+                                    {thread?.model && !MODEL_OPTIONS.some((o) => o.id === thread.model) && (
+                                        <option value={thread.model}>
+                                            {thread.model.startsWith('gemini') ? 'Gemini API' : 'OpenAI API'}
+                                        </option>
+                                    )}
+                                </select>
+                                <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none">
+                                    <svg className="w-2.5 h-2.5 text-surface-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                    </svg>
+                                </div>
+                            </div>
+                        ) : (
+                            <span className="font-medium text-surface-600 dark:text-surface-400">
+                                {MODEL_OPTIONS.find((o) => o.id === thread?.model)?.label ||
+                                    (thread?.model?.startsWith('gemini') ? 'Gemini API' : 'OpenAI API')}
+                            </span>
+                        )}
+
+                        <span className={cn(
+                            "text-[10px] px-1.5 py-0.5 rounded-full border",
+                            hasApiKey
+                                ? "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
+                                : !isOwner
+                                    ? "bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800"
+                                    : "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700"
+                        )}>
+                            {hasApiKey
+                                ? '✅ あなたのAPI'
+                                : !isOwner
+                                    ? `👤 ${ownerProfile?.display_name ? ownerProfile.display_name + 'の設定に依存' : 'オーナー設定に依存'}`
+                                    : '⚠️ API未登録'}
+                        </span>
+
+                        {thread?.created_at && (
+                            <>
+                                <span className="text-surface-300 dark:text-surface-600">•</span>
+                                <span className="whitespace-nowrap font-mono opacity-80">
+                                    {new Date(thread.created_at).toLocaleDateString('ja-JP')}
+                                </span>
+                            </>
+                        )}
+
+                        {ownerProfile && (
+                            <>
+                                <span className="text-surface-300 dark:text-surface-600">•</span>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    {ownerProfile.avatar_path ? (
+                                        <div className="w-4 h-4 rounded-full overflow-hidden ring-1 ring-surface-200 dark:ring-surface-700 relative">
+                                            <img
+                                                src={getStorageUrl('avatars', ownerProfile.avatar_path)}
+                                                alt={ownerProfile.display_name || ownerProfile.handle || 'Unknown'}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="w-4 h-4 rounded-full bg-surface-200 dark:bg-surface-700 flex items-center justify-center text-[7px] font-bold text-surface-600 dark:text-surface-300 uppercase ring-1 ring-surface-300/50">
+                                            {getInitials(ownerProfile.display_name || ownerProfile.handle || 'Unknown')}
+                                        </div>
+                                    )}
+                                    <span className="truncate max-w-[100px] hover:text-surface-800 dark:hover:text-surface-200 transition-colors">
+                                        {ownerProfile.display_name || ownerProfile.handle || 'Unknown'}
+                                    </span>
+                                </div>
+                            </>
+                        )}
                     </div>
-                    <div className="flex items-center gap-1">
-                        <button onClick={handleDuplicate} className="btn-icon" title="複製">
-                            <DuplicateIcon className="w-5 h-5" />
-                        </button>
-                        {isOwner && (
-                            <button
-                                onClick={() => {
-                                    setShareOpen(true);
-                                    fetchShareRooms();
-                                }}
-                                className="btn-icon"
-                                title="トークに共有"
+                </div>
+                <div className="relative">
+                    <button
+                        ref={menuButtonRef}
+                        onClick={() => {
+                            if (!headerMenuOpen && menuButtonRef.current) {
+                                const rect = menuButtonRef.current.getBoundingClientRect();
+                                setMenuStyle({
+                                    position: 'fixed',
+                                    top: `${rect.bottom + 8}px`,
+                                    right: `${window.innerWidth - rect.right}px`,
+                                    zIndex: 9999,
+                                });
+                                setHeaderMenuOpen(true);
+                            } else {
+                                setHeaderMenuOpen(false);
+                            }
+                        }}
+                        className="btn-icon p-1.5"
+                        title="メニュー"
+                    >
+                        <EllipsisVerticalIcon className="w-5 h-5" />
+                    </button>
+
+                    {headerMenuOpen && (
+                        <>
+                            <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
+                            <div
+                                className="absolute w-56 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden animate-in fade-in zoom-in-95 duration-100 py-1"
+                                style={menuStyle}
                             >
-                                <ShareToChatIcon className="w-5 h-5" />
-                            </button>
-                        )}
-                        {isOwner && (
-                            <button onClick={handleShare} className="btn-icon" title="リンク共有">
-                                <ShareIcon className="w-5 h-5" />
-                            </button>
-                        )}
-                        {isOwner && (
-                            <button onClick={() => setMembersOpen(true)} className="btn-icon" title="メンバー管理">
-                                <UsersIcon className="w-5 h-5" />
-                            </button>
-                        )}
-                        {isOwner && (
-                            <button onClick={handleOpenApiKeyModal} className="btn-icon" title="APIキー">
-                                <KeyIcon className="w-5 h-5" />
-                            </button>
-                        )}
-                        {isOwner && !isArchived && (
-                            <button
-                                onClick={handleArchive}
-                                className="btn-icon"
-                                title="アーカイブ"
-                                disabled={actionStatus === 'archive'}
-                            >
-                                <ArchiveIcon className="w-5 h-5" />
-                            </button>
-                        )}
-                        {isOwner && (
-                            <button
-                                onClick={handleDelete}
-                                className="btn-icon text-error-500"
-                                title="削除"
-                                disabled={actionStatus === 'delete'}
-                            >
-                                <TrashIcon className="w-5 h-5" />
-                            </button>
-                        )}
-                    </div>
-                </header>
-            )}
+                                <button
+                                    onClick={() => {
+                                        handleDuplicate();
+                                        setHeaderMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                >
+                                    <DuplicateIcon className="w-4 h-4 text-surface-500" />
+                                    <span>複製して新規作成</span>
+                                </button>
+
+                                <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+
+                                {/* Share to Chat - Available to everyone */}
+                                <button
+                                    onClick={() => {
+                                        setShareOpen(true);
+                                        fetchShareRooms();
+                                        setHeaderMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                >
+                                    <ShareToChatIcon className="w-4 h-4 text-surface-500" />
+                                    <span>トークに共有</span>
+                                </button>
+
+                                {isOwner && (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                handleShare();
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <ShareIcon className="w-4 h-4 text-surface-500" />
+                                            <span>リンクをコピー</span>
+                                        </button>
+
+                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+                                        <button
+                                            onClick={() => {
+                                                setMembersOpen(true);
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <UsersIcon className="w-4 h-4 text-surface-500" />
+                                            <span>メンバー管理</span>
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                handleOpenApiKeyModal();
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <KeyIcon className="w-4 h-4 text-surface-500" />
+                                            <span>APIキー設定</span>
+                                        </button>
+                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+                                        <button
+                                            onClick={() => {
+                                                handleShare();
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <ShareIcon className="w-4 h-4 text-surface-500" />
+                                            <span>リンクをコピー</span>
+                                        </button>
+
+                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+                                        <button
+                                            onClick={() => {
+                                                setMembersOpen(true);
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <UsersIcon className="w-4 h-4 text-surface-500" />
+                                            <span>メンバー管理</span>
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                handleOpenApiKeyModal();
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <KeyIcon className="w-4 h-4 text-surface-500" />
+                                            <span>APIキー設定</span>
+                                        </button>
+
+                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+                                        {!isArchived && (
+                                            <button
+                                                onClick={() => {
+                                                    handleArchive();
+                                                    setHeaderMenuOpen(false);
+                                                }}
+                                                disabled={actionStatus === 'archive'}
+                                                className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-warning-600 dark:text-warning-500"
+                                            >
+                                                <ArchiveIcon className="w-4 h-4" />
+                                                <span>アーカイブ</span>
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => {
+                                                handleDelete();
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            disabled={actionStatus === 'delete'}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-error-50 dark:hover:bg-error-950/30 transition-colors text-error-600 dark:text-error-400"
+                                        >
+                                            <TrashIcon className="w-4 h-4" />
+                                            <span>スレッドを削除</span>
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
+            </header>
 
             {/* Messages */}
-            <div className="flex-1 overflow-auto p-4 space-y-4">
+            <div
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-auto px-4 pt-4 pb-40 space-y-4"
+            >
                 {isArchived && (
                     <div className="text-center py-2 text-sm text-surface-500">
                         このスレッドはアーカイブされています。
@@ -1016,16 +1309,39 @@ export function AIThreadView({
             </div>
 
             {/* Input */}
-            <div className="border-t border-surface-200 dark:border-surface-800 p-3 bg-white dark:bg-surface-900 safe-bottom">
-                {queueNotice && (
-                    <div className="mb-2 text-xs text-surface-500">{queueNotice}</div>
+            <div className="absolute bottom-4 left-0 right-0 px-4 safe-bottom z-20">
+                {showScrollToBottom && (
+                    <button
+                        onClick={() => scrollToBottom()}
+                        className="absolute bottom-full right-4 mb-4 grid place-items-center w-10 h-10 bg-white dark:bg-surface-800 rounded-full shadow-lg border border-surface-200 dark:border-surface-700 text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-700 transition-all animate-in fade-in zoom-in duration-200"
+                    >
+                        <ChevronDownIcon className="w-5 h-5" />
+                    </button>
                 )}
+
+                {queueNotice && (
+                    <div className="absolute bottom-full left-4 mb-2 z-10 text-xs text-surface-500 bg-white/90 dark:bg-surface-900/90 px-2 py-1 rounded-md shadow-sm border border-surface-200 dark:border-surface-700">
+                        {queueNotice}
+                    </div>
+                )}
+
                 <div className="flex items-end gap-2">
                     <div className="flex-1 relative">
+                        {isOwner && !hasApiKey && !isArchived && (
+                            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[19px] bg-surface-50/60 dark:bg-surface-900/60 backdrop-blur-sm">
+                                <button
+                                    onClick={() => setApiKeyModalOpen(true)}
+                                    className="flex items-center gap-2 bg-primary-500 hover:bg-primary-600 text-white px-4 py-1.5 rounded-full text-xs font-medium shadow-lg transition-all transform hover:scale-105"
+                                >
+                                    <KeyIcon className="w-3 h-3" />
+                                    APIキーを登録して開始
+                                </button>
+                            </div>
+                        )}
                         <textarea
                             ref={inputRef}
                             value={input}
-                            onChange={(e) => setInput(e.target.value)}
+                            onChange={(e) => handleInputChange(e.target.value)}
                             onKeyDown={handleKeyDown}
                             placeholder={
                                 isArchived
@@ -1033,196 +1349,279 @@ export function AIThreadView({
                                     : !canIntervene
                                         ? '閲覧のみのため送信できません'
                                         : isOwner && !hasApiKey
-                                            ? 'APIキーを登録してください'
+                                            ? ''
                                             : isRunning
                                                 ? 'AIが応答中...'
                                                 : 'メッセージを入力...'
                             }
                             disabled={isRunning || isArchived || !canIntervene || (isOwner && !hasApiKey)}
                             rows={1}
-                            className="input resize-none py-2.5 min-h-[42px] max-h-32 disabled:opacity-50"
+                            style={{ minHeight: '38px', height: '38px' }}
+                            className="w-full resize-none rounded-[19px] border border-surface-200/50 dark:border-surface-700/50 bg-white dark:bg-surface-800 px-4 py-[9px] text-sm leading-5 max-h-32 shadow-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 placeholder:text-surface-400 transition-colors disabled:opacity-50"
                         />
                     </div>
                     <button
                         onClick={handleSend}
                         disabled={!input.trim() || sending || isRunning || isArchived || !canIntervene || (isOwner && !hasApiKey)}
-                        className="btn-primary p-2.5 rounded-full flex-shrink-0 bg-gradient-to-r from-primary-500 to-accent-500 hover:from-primary-600 hover:to-accent-600"
+                        className={cn(
+                            "w-[38px] h-[38px] flex items-center justify-center rounded-full flex-shrink-0 transition-all shadow-lg mb-[1px]",
+                            "bg-primary-500 hover:bg-primary-600 text-white",
+                            "disabled:bg-primary-300 dark:disabled:bg-primary-800 disabled:text-white/80 disabled:cursor-not-allowed"
+                        )}
                     >
-                        <PaperAirplaneIcon className="w-5 h-5" />
+                        <PaperAirplaneIcon className="w-4 h-4" />
                     </button>
                 </div>
-
-                {/* Footer note */}
-                <p className="text-xs text-center text-surface-400 mt-2">
-                    AIは間違いを犯す可能性があります。重要な情報は確認してください。
-                </p>
             </div>
 
-            {apiKeyModalOpen && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900">
-                        <h3 className="text-lg font-semibold mb-2">OpenAI APIキー登録</h3>
-                        <p className="text-sm text-surface-500 mb-4">
-                            AIスレッドを使うためにAPIキーを登録してください。
-                        </p>
-                        <input
-                            type="password"
-                            value={apiKeyInput}
-                            onChange={(e) => setApiKeyInput(e.target.value)}
-                            placeholder="sk-..."
-                            className="input w-full"
-                        />
-                        {apiKeyError && (
-                            <div className="mt-2 text-sm text-error-600 dark:text-error-400">
-                                {apiKeyError}
-                            </div>
-                        )}
-                        <div className="mt-4 flex justify-end gap-2">
-                            <button
-                                onClick={() => setApiKeyModalOpen(false)}
-                                className="btn-secondary"
-                                disabled={apiKeySaving}
-                            >
-                                キャンセル
-                            </button>
-                            <button
-                                onClick={handleSaveApiKey}
-                                className="btn-primary"
-                                disabled={apiKeySaving}
-                            >
-                                {apiKeySaving ? '保存中...' : '保存'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
-            {membersOpen && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
-                    <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900 max-h-[80vh] overflow-auto">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold">メンバー管理</h3>
-                            <button onClick={() => setMembersOpen(false)} className="btn-icon">
-                                ✕
-                            </button>
-                        </div>
+            {
+                apiKeyModalOpen && (
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
+                        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900">
+                            {(() => {
+                                const modalProvider = getProvider(thread?.model || 'gpt-5.2');
+                                const modalLabel = modalProvider === 'google' ? 'Gemini API' : 'OpenAI API';
+                                const modalUrl = modalProvider === 'google' ? 'https://aistudio.google.com/app/apikey' : 'https://platform.openai.com/api-keys';
+                                const modalPlaceholder = modalProvider === 'google' ? 'AIza...' : 'sk-...';
 
-                        {ownerProfile && (
-                            <div className="mb-4 rounded-lg border border-surface-200 dark:border-surface-700 p-3 text-sm">
-                                <div className="font-medium">オーナー</div>
-                                <div className="text-surface-500">@{ownerProfile.handle}</div>
-                                <div className="text-surface-400">{ownerProfile.display_name}</div>
-                            </div>
-                        )}
-
-                        <div className="space-y-3">
-                            {members.map((member) => (
-                                <div key={member.user_id} className="flex items-center gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-medium truncate">{member.display_name}</p>
-                                        <p className="text-xs text-surface-500">@{member.handle}</p>
-                                    </div>
-                                    <select
-                                        value={member.permission}
-                                        onChange={(e) => handleUpdateMemberPermission(member.user_id, e.target.value as 'VIEW' | 'INTERVENE')}
-                                        className="input text-xs py-1"
-                                    >
-                                        <option value="VIEW">VIEW</option>
-                                        <option value="INTERVENE">INTERVENE</option>
-                                    </select>
-                                    <button
-                                        onClick={() => handleRemoveMember(member.user_id)}
-                                        className="btn-ghost text-xs px-2 py-1 text-error-500"
-                                    >
-                                        削除
-                                    </button>
+                                return (
+                                    <>
+                                        <h3 className="text-lg font-semibold mb-2 text-surface-900 dark:text-surface-100">{modalLabel}キー登録</h3>
+                                        <p className="text-sm text-surface-500 mb-4">
+                                            AIスレッドを使うためにAPIキーを登録してください。<br />
+                                            <a href={modalUrl} target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">
+                                                キーを取得する
+                                            </a>
+                                        </p>
+                                        <input
+                                            type="password"
+                                            value={apiKeyInput}
+                                            onChange={(e) => setApiKeyInput(e.target.value)}
+                                            placeholder={modalPlaceholder}
+                                            className="w-full text-sm py-2 px-4 rounded-full bg-surface-100 dark:bg-surface-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-surface-900 focus:ring-2 focus:ring-primary-500/20 placeholder:text-surface-400 transition-all outline-none shadow-sm text-surface-900 dark:text-surface-100"
+                                        />
+                                    </>
+                                );
+                            })()}
+                            {apiKeyError && (
+                                <div className="mt-2 text-sm text-error-600 dark:text-error-400">
+                                    {apiKeyError}
                                 </div>
-                            ))}
-                        </div>
-
-                        <div className="mt-6">
-                            <h4 className="text-sm font-semibold mb-2">メンバー追加</h4>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={memberSearch}
-                                    onChange={(e) => setMemberSearch(e.target.value)}
-                                    placeholder="@handle で検索"
-                                    className="input flex-1"
-                                />
-                                <button onClick={handleSearchMember} className="btn-secondary">
-                                    検索
+                            )}
+                            <div className="mt-4 flex justify-end gap-2">
+                                <button
+                                    onClick={() => setApiKeyModalOpen(false)}
+                                    className="btn-secondary"
+                                    disabled={apiKeySaving}
+                                >
+                                    キャンセル
+                                </button>
+                                <button
+                                    onClick={handleSaveApiKey}
+                                    className="btn-primary"
+                                    disabled={apiKeySaving}
+                                >
+                                    {apiKeySaving ? '保存中...' : '保存'}
                                 </button>
                             </div>
-                            {memberSearchResult && (
-                                <div className="mt-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 text-sm flex items-center gap-2">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-medium truncate">{memberSearchResult.display_name}</p>
-                                        <p className="text-xs text-surface-500">@{memberSearchResult.handle}</p>
-                                    </div>
-                                    <select
-                                        value={memberPermission}
-                                        onChange={(e) => setMemberPermission(e.target.value as 'VIEW' | 'INTERVENE')}
-                                        className="input text-xs py-1"
-                                    >
-                                        <option value="VIEW">VIEW</option>
-                                        <option value="INTERVENE">INTERVENE</option>
-                                    </select>
-                                    <button onClick={handleAddMember} className="btn-primary text-xs px-2 py-1">
-                                        追加
-                                    </button>
-                                </div>
-                            )}
-                            {memberError && (
-                                <div className="mt-2 text-sm text-error-600 dark:text-error-400">
-                                    {memberError}
-                                </div>
-                            )}
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
-            {shareOpen && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
-                    <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900 max-h-[80vh] overflow-auto">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold">トークに共有</h3>
-                            <button onClick={() => setShareOpen(false)} className="btn-icon">
-                                ✕
-                            </button>
-                        </div>
-                        {shareLoading ? (
-                            <div className="flex items-center justify-center py-6">
-                                <div className="w-6 h-6 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
+            {
+                membersOpen && (
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
+                        <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900 max-h-[80vh] overflow-auto">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold">メンバー管理</h3>
+                                <button onClick={() => setMembersOpen(false)} className="btn-icon">
+                                    ✕
+                                </button>
                             </div>
-                        ) : (
-                            <div className="space-y-2">
-                                {shareRooms.map((room) => (
-                                    <button
-                                        key={room.id}
-                                        onClick={() => handleShareToRoom(room.id)}
-                                        className="w-full text-left rounded-lg border border-surface-200 dark:border-surface-700 p-3 hover:bg-surface-100 dark:hover:bg-surface-800"
-                                    >
-                                        <p className="font-medium truncate">{room.name}</p>
-                                        <p className="text-xs text-surface-500">{room.type === 'dm' ? 'DM' : 'グループ'}</p>
-                                    </button>
+
+                            {ownerProfile && (
+                                <div className="mb-4 flex items-center gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 bg-surface-50/50 dark:bg-surface-800/50">
+                                    <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700">
+                                        {ownerProfile.avatar_path ? (
+                                            <img
+                                                src={getStorageUrl('avatars', ownerProfile.avatar_path)}
+                                                alt={ownerProfile.display_name}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                                {getInitials(ownerProfile.display_name)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-medium text-sm">{ownerProfile.display_name}</span>
+                                            <span className="text-[10px] bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded-full dark:bg-primary-900/30 dark:text-primary-400">オーナー</span>
+                                        </div>
+                                        <div className="text-xs text-surface-500">@{ownerProfile.handle}</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-3">
+                                {members.map((member) => (
+                                    <div key={member.user_id} className="flex items-center gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors">
+                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700">
+                                            {member.avatar_path ? (
+                                                <img
+                                                    src={getStorageUrl('avatars', member.avatar_path)}
+                                                    alt={member.display_name}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                                    {getInitials(member.display_name)}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium truncate text-sm">{member.display_name}</p>
+                                            <p className="text-xs text-surface-500">@{member.handle}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1.5 pl-2">
+                                            <select
+                                                value={member.permission}
+                                                onChange={(e) => handleUpdateMemberPermission(member.user_id, e.target.value as 'VIEW' | 'INTERVENE')}
+                                                className="text-xs py-1 pl-2 pr-7 rounded-md border-surface-200 bg-surface-50 dark:bg-surface-800 dark:border-surface-700 focus:ring-1 focus:ring-primary-500"
+                                            >
+                                                <option value="VIEW">閲覧のみ</option>
+                                                <option value="INTERVENE">閲覧・操作</option>
+                                            </select>
+                                            <button
+                                                onClick={() => handleRemoveMember(member.user_id)}
+                                                className="text-[10px] text-error-500 hover:text-error-600 hover:underline px-1"
+                                            >
+                                                削除する
+                                            </button>
+                                        </div>
+                                    </div>
                                 ))}
-                                {shareRooms.length === 0 && (
-                                    <div className="text-center text-sm text-surface-500 py-6">
-                                        共有できるトークがありません
+                            </div>
+
+                            <div className="mt-6">
+                                <h4 className="text-sm font-semibold mb-2">メンバー追加</h4>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={memberSearch}
+                                        onChange={(e) => setMemberSearch(e.target.value)}
+                                        placeholder="@handle で検索"
+                                        className="flex-1 text-sm py-2 px-4 rounded-full bg-surface-100 dark:bg-surface-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-surface-900 focus:ring-2 focus:ring-primary-500/20 placeholder:text-surface-400 transition-all outline-none shadow-sm"
+                                    />
+                                    <button onClick={handleSearchMember} className="btn-secondary">
+                                        検索
+                                    </button>
+                                </div>
+                                {memberSearchResult && (
+                                    <div className="mt-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700">
+                                            {memberSearchResult.avatar_path ? (
+                                                <img
+                                                    src={getStorageUrl('avatars', memberSearchResult.avatar_path)}
+                                                    alt={memberSearchResult.display_name}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                                    {getInitials(memberSearchResult.display_name)}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium truncate text-sm">{memberSearchResult.display_name}</p>
+                                            <p className="text-xs text-surface-500">@{memberSearchResult.handle}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1.5">
+                                            <select
+                                                value={memberPermission}
+                                                onChange={(e) => setMemberPermission(e.target.value as 'VIEW' | 'INTERVENE')}
+                                                className="text-xs py-1 pl-2 pr-7 rounded-md border-surface-200 bg-surface-50 dark:bg-surface-800 dark:border-surface-700 focus:ring-1 focus:ring-primary-500"
+                                            >
+                                                <option value="VIEW">閲覧のみ</option>
+                                                <option value="INTERVENE">閲覧・操作</option>
+                                            </select>
+                                            <button onClick={handleAddMember} className="btn-primary text-xs px-3 py-1">
+                                                追加
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {memberError && (
+                                    <div className="mt-2 text-sm text-error-600 dark:text-error-400">
+                                        {memberError}
                                     </div>
                                 )}
                             </div>
-                        )}
-                        {shareError && (
-                            <div className="mt-3 text-sm text-error-600 dark:text-error-400">
-                                {shareError}
-                            </div>
-                        )}
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+
+            {
+                shareOpen && (
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
+                        <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900 max-h-[80vh] overflow-auto">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold">トークに共有</h3>
+                                <button onClick={() => setShareOpen(false)} className="btn-icon">
+                                    ✕
+                                </button>
+                            </div>
+                            {shareLoading ? (
+                                <div className="flex items-center justify-center py-6">
+                                    <div className="w-6 h-6 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {shareRooms.map((room) => (
+                                        <button
+                                            key={room.id}
+                                            onClick={() => handleShareToRoom(room.id)}
+                                            className="w-full flex items-center gap-3 text-left rounded-lg border border-surface-200 dark:border-surface-700 p-3 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                                        >
+                                            <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative">
+                                                {room.avatar_path ? (
+                                                    <img
+                                                        src={getStorageUrl('avatars', room.avatar_path)}
+                                                        alt={room.name}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                                        {getInitials(room.name)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-medium truncate">{room.name}</p>
+                                                <p className="text-xs text-surface-500">{room.type === 'dm' ? 'DM' : 'グループ'}</p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                    {shareRooms.length === 0 && (
+                                        <div className="text-center text-sm text-surface-500 py-6">
+                                            共有できるトークがありません
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {shareError && (
+                                <div className="mt-3 text-sm text-error-600 dark:text-error-400">
+                                    {shareError}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )
+            }
+        </div >
     );
 }

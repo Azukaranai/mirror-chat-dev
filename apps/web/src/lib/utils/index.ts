@@ -186,6 +186,7 @@ export function parseSharedAIThreadCard(content: string | null): {
     titleSnapshot?: string;
     modelSnapshot?: string;
     sharedAt?: string;
+    createdAtSnapshot?: string;
 } | null {
     if (!content) return null;
     try {

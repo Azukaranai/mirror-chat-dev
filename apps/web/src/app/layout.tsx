@@ -42,6 +42,33 @@ export default function RootLayout({
 }) {
     return (
         <html lang="ja" className={inter.variable} suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{
+                        __html: `
+                            (function() {
+                                try {
+                                    var storage = localStorage.getItem('ui-storage');
+                                    if (storage) {
+                                        var state = JSON.parse(storage).state;
+                                        var theme = state.theme;
+                                        var isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                                        if (isDark) {
+                                            document.documentElement.classList.add('dark');
+                                        } else {
+                                            document.documentElement.classList.remove('dark');
+                                        }
+                                    } else {
+                                        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                                            document.documentElement.classList.add('dark');
+                                        }
+                                    }
+                                } catch (e) {}
+                            })();
+                        `,
+                    }}
+                />
+            </head>
             <body className="font-sans antialiased">
                 <UIInitializer />
                 {children}

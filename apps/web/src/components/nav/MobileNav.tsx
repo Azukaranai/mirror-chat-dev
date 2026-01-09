@@ -51,7 +51,7 @@ export function MobileNav() {
     };
 
     return (
-        <div className="flex items-center justify-around py-2 px-1">
+        <div className="flex items-center justify-around py-1 px-1">
             {navItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
@@ -66,7 +66,7 @@ export function MobileNav() {
                         )}
                     >
                         <Icon className="w-6 h-6" />
-                        <span className="text-xs">{item.label}</span>
+                        <span className="sr-only">{item.label}</span>
                     </Link>
                 );
             })}

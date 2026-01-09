@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayStore } from '@/lib/stores';
 import { AIThreadPanel } from '@/components/ai/AIThreadPanel';
-import { cn } from '@/lib/utils';
+import { cn, isMobile } from '@/lib/utils';
 import type { OverlayWindow } from '@/types';
 
 // Icons
@@ -25,68 +25,177 @@ interface OverlayWindowComponentProps {
 }
 
 function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
-    const { closeWindow, minimizeWindow, bringToFront, updatePosition, updateSize } = useOverlayStore();
+    const { closeWindow, minimizeWindow, restoreWindow, bringToFront, updatePosition, updateSize } = useOverlayStore();
     const windowRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
-    const [isResizing, setIsResizing] = useState(false);
+    const [resizingDirection, setResizingDirection] = useState<string | null>(null);
     const dragOffset = useRef({ x: 0, y: 0 });
     const initialSize = useRef({ width: 0, height: 0 });
     const initialPos = useRef({ x: 0, y: 0 });
+    const initialWindowPos = useRef({ x: 0, y: 0 });
+    const hasMoved = useRef(false);
+
+    const MINIMIZED_WIDTH = 150;
+    const renderX = window.minimized
+        ? window.x + window.width - MINIMIZED_WIDTH
+        : window.x;
 
     // Handle dragging
-    const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        if ((e.target as HTMLElement).closest('.window-controls')) return;
+    const onDragStart = useCallback((clientX: number, clientY: number, target: EventTarget) => {
+        if ((target as HTMLElement).closest('.window-controls')) return;
+        if ((target as HTMLElement).closest('.resize-handle')) return;
 
         bringToFront(window.windowId);
         setIsDragging(true);
+        hasMoved.current = false;
         dragOffset.current = {
-            x: e.clientX - window.x,
-            y: e.clientY - window.y,
+            x: clientX - renderX,
+            y: clientY - window.y,
         };
-    }, [window.windowId, window.x, window.y, bringToFront]);
+    }, [window.windowId, window.x, window.y, window.width, window.minimized, renderX, bringToFront]);
 
-    const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        onDragStart(e.clientX, e.clientY, e.target);
+    }, [onDragStart]);
+
+    const handleTouchStart = useCallback((e: React.TouchEvent) => {
+        const touch = e.touches[0];
+        onDragStart(touch.clientX, touch.clientY, e.target);
+    }, [onDragStart]);
+
+    const startResize = useCallback((direction: string) => (e: React.MouseEvent) => {
         e.stopPropagation();
         bringToFront(window.windowId);
-        setIsResizing(true);
+        setResizingDirection(direction);
         initialSize.current = { width: window.width, height: window.height };
         initialPos.current = { x: e.clientX, y: e.clientY };
-    }, [window.windowId, window.width, window.height, bringToFront]);
+        initialWindowPos.current = { x: window.x, y: window.y };
+    }, [window.windowId, window.width, window.height, window.x, window.y, bringToFront]);
 
     useEffect(() => {
-        const handleMouseMove = (e: MouseEvent) => {
+        const handleDrag = (clientX: number, clientY: number) => {
             if (isDragging) {
-                const newX = Math.max(0, e.clientX - dragOffset.current.x);
-                const newY = Math.max(0, e.clientY - dragOffset.current.y);
-                updatePosition(window.windowId, newX, newY);
+                hasMoved.current = true;
+                const newRenderX = Math.max(0, clientX - dragOffset.current.x);
+                const newY = Math.max(0, clientY - dragOffset.current.y);
+
+                const newStoreX = window.minimized
+                    ? newRenderX - window.width + MINIMIZED_WIDTH
+                    : newRenderX;
+
+                updatePosition(window.windowId, newStoreX, newY);
             }
-            if (isResizing) {
-                const deltaX = e.clientX - initialPos.current.x;
-                const deltaY = e.clientY - initialPos.current.y;
-                const newWidth = Math.max(320, initialSize.current.width + deltaX);
-                const newHeight = Math.max(400, initialSize.current.height + deltaY);
+            if (resizingDirection) {
+                const deltaX = clientX - initialPos.current.x;
+                const deltaY = clientY - initialPos.current.y;
+
+                let newWidth = initialSize.current.width;
+                let newHeight = initialSize.current.height;
+                let newX = initialWindowPos.current.x;
+                let newY = initialWindowPos.current.y;
+
+                // Calculate dimensions
+                if (resizingDirection.includes('e')) {
+                    newWidth = initialSize.current.width + deltaX;
+                }
+                if (resizingDirection.includes('w')) {
+                    newWidth = initialSize.current.width - deltaX;
+                }
+                if (resizingDirection.includes('s')) {
+                    newHeight = initialSize.current.height + deltaY;
+                }
+                if (resizingDirection.includes('n')) {
+                    newHeight = initialSize.current.height - deltaY;
+                }
+
+                // Apply constraints
+                const minWidth = 320;
+                const minHeight = 400;
+
+                if (newWidth < minWidth) newWidth = minWidth;
+                if (newHeight < minHeight) newHeight = minHeight;
+
+                // Calculate position adjustments for left/top resizing
+                if (resizingDirection.includes('w')) {
+                    newX = initialWindowPos.current.x + (initialSize.current.width - newWidth);
+                }
+                if (resizingDirection.includes('n')) {
+                    newY = initialWindowPos.current.y + (initialSize.current.height - newHeight);
+                }
+
                 updateSize(window.windowId, newWidth, newHeight);
+                if (resizingDirection.includes('w') || resizingDirection.includes('n')) {
+                    updatePosition(window.windowId, newX, newY);
+                }
             }
         };
 
-        const handleMouseUp = () => {
-            setIsDragging(false);
-            setIsResizing(false);
+        const handleMouseMove = (e: MouseEvent) => handleDrag(e.clientX, e.clientY);
+        const handleTouchMove = (e: TouchEvent) => {
+            if (isDragging || resizingDirection) e.preventDefault();
+            const touch = e.touches[0];
+            handleDrag(touch.clientX, touch.clientY);
         };
 
-        if (isDragging || isResizing) {
+        const handleEnd = () => {
+            setIsDragging(false);
+            setResizingDirection(null);
+        };
+
+        if (isDragging || resizingDirection) {
             document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
+            document.addEventListener('mouseup', handleEnd);
+            document.addEventListener('touchmove', handleTouchMove, { passive: false });
+            document.addEventListener('touchend', handleEnd);
+            // Block text selection while resizing/dragging
+            document.body.style.userSelect = 'none';
+        } else {
+            document.body.style.userSelect = '';
         }
 
         return () => {
             document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('mouseup', handleEnd);
+            document.removeEventListener('touchmove', handleTouchMove);
+            document.removeEventListener('touchend', handleEnd);
+            document.body.style.userSelect = '';
         };
-    }, [isDragging, isResizing, window.windowId, updatePosition, updateSize]);
+    }, [isDragging, resizingDirection, window.windowId, updatePosition, updateSize]);
 
     if (window.minimized) {
-        return null;
+        return (
+            <div
+                className={cn(
+                    'fixed z-[400] cursor-pointer flex items-center gap-2 px-4 py-2 rounded-full shadow-xl transition-all',
+                    'bg-surface-900/90 text-white backdrop-blur-md border border-surface-700/50',
+                    'hover:bg-surface-800 hover:scale-105 active:scale-95',
+                    isDragging && 'cursor-grabbing scale-105'
+                )}
+                style={{
+                    left: renderX,
+                    top: window.y,
+                }}
+                onMouseDown={handleMouseDown}
+                onTouchStart={handleTouchStart}
+                onClick={() => {
+                    if (!hasMoved.current) {
+                        restoreWindow(window.windowId);
+                    }
+                }}
+            >
+                <div className="w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
+                <span className="text-sm font-medium select-none">AIスレッド</span>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        closeWindow(window.windowId);
+                    }}
+                    className="ml-1 p-1 rounded-full hover:bg-white/20 transition-colors"
+                >
+                    <XMarkIcon className="w-3 h-3" />
+                </button>
+            </div>
+        );
     }
 
     return (
@@ -95,14 +204,13 @@ function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
             className={cn(
                 'overlay-window',
                 isDragging && 'cursor-grabbing',
-                isResizing && 'cursor-nwse-resize'
             )}
             style={{
-                left: window.x,
+                left: renderX,
                 top: window.y,
                 width: window.width,
                 height: window.height,
-                zIndex: window.zIndex + 300, // Add to base z-index
+                zIndex: window.zIndex + 300,
             }}
             onClick={() => bringToFront(window.windowId)}
         >
@@ -110,8 +218,9 @@ function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
             <div
                 className="overlay-window-header"
                 onMouseDown={handleMouseDown}
+                onTouchStart={handleTouchStart}
             >
-                <span className="text-sm font-medium truncate flex-1">
+                <span className="text-sm font-medium truncate flex-1 select-none">
                     AIスレッド
                 </span>
                 <div className="window-controls flex items-center gap-1">
@@ -135,42 +244,15 @@ function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
                 <AIThreadPanel threadId={window.threadId} variant="embedded" />
             </div>
 
-            {/* Resize Handle */}
-            <div
-                className="overlay-resize-handle"
-                onMouseDown={handleResizeMouseDown}
-            >
-                <svg
-                    className="absolute bottom-1 right-1 w-3 h-3 text-surface-400"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                >
+            {/* Resize Handles */}
+            <div className="resize-handle absolute top-0 left-0 w-4 h-4 cursor-nw-resize z-50 hover:bg-primary-500/20 rounded-tl-lg" onMouseDown={startResize('nw')} />
+            <div className="resize-handle absolute top-0 right-0 w-4 h-4 cursor-ne-resize z-50 hover:bg-primary-500/20 rounded-tr-lg" onMouseDown={startResize('ne')} />
+            <div className="resize-handle absolute bottom-0 left-0 w-4 h-4 cursor-sw-resize z-50 hover:bg-primary-500/20 rounded-bl-lg" onMouseDown={startResize('sw')} />
+            <div className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-50 hover:bg-primary-500/20 rounded-br-lg grid place-items-center" onMouseDown={startResize('se')}>
+                <svg className="w-3 h-3 text-surface-400 rotate-0" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M22 22H20V20H22V22ZM22 18H20V16H22V18ZM18 22H16V20H18V22ZM22 14H20V12H22V14ZM18 18H16V16H18V18ZM14 22H12V20H14V22Z" />
                 </svg>
             </div>
-        </div>
-    );
-}
-
-// Minimized windows bar
-function MinimizedBar() {
-    const { windows, restoreWindow } = useOverlayStore();
-    const minimizedWindows = windows.filter((w) => w.minimized);
-
-    if (minimizedWindows.length === 0) return null;
-
-    return (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-2 bg-surface-900/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg z-[400]">
-            {minimizedWindows.map((w) => (
-                <button
-                    key={w.windowId}
-                    onClick={() => restoreWindow(w.windowId)}
-                    className="flex items-center gap-2 px-3 py-1 rounded-full bg-surface-800 hover:bg-surface-700 text-sm text-white transition-colors"
-                >
-                    <span className="w-2 h-2 rounded-full bg-primary-500" />
-                    AIスレッド
-                </button>
-            ))}
         </div>
     );
 }
@@ -181,6 +263,14 @@ export function OverlayManager() {
 
     useEffect(() => {
         setMounted(true);
+        if (isMobile()) {
+            const state = useOverlayStore.getState();
+            state.windows.forEach((w) => {
+                if (!w.minimized) {
+                    state.minimizeWindow(w.windowId);
+                }
+            });
+        }
     }, []);
 
     if (!mounted) return null;
@@ -190,7 +280,6 @@ export function OverlayManager() {
             {windows.map((window) => (
                 <OverlayWindowComponent key={window.windowId} window={window} />
             ))}
-            <MinimizedBar />
         </>,
         document.body
     );

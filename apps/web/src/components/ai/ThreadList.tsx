@@ -101,12 +101,31 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
         setCreating(true);
         setCreateError(null);
 
+        // Determine initial model based on available keys
+        let initialModel = 'gpt-5.2';
+        try {
+            const { data: keys } = await supabase
+                .from('user_llm_keys')
+                .select('provider')
+                .eq('user_id', userId);
+
+            const providers = new Set(keys?.map((k: any) => k.provider) || []);
+
+            if (providers.has('openai')) {
+                initialModel = 'gpt-5.2';
+            } else if (providers.has('google')) {
+                initialModel = 'gemini-3.0';
+            }
+        } catch (e) {
+            // Ignore error, use default
+        }
+
         const { data: newThread, error } = await supabase
             .from('ai_threads')
             .insert({
                 owner_user_id: userId,
                 title: '新規スレッド',
-                model: 'gpt-4o',
+                model: initialModel,
             } as any)
             .select()
             .single();
@@ -171,7 +190,7 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="スレッドを検索..."
-                    className="input text-sm py-2"
+                    className="w-full text-sm py-2 px-4 rounded-full bg-surface-100 dark:bg-surface-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-surface-900 focus:ring-2 focus:ring-primary-500/20 placeholder:text-surface-400 transition-all outline-none shadow-sm"
                 />
             </div>
 
@@ -187,9 +206,6 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
                                 activeThreadId === thread.id && 'bg-surface-100 dark:bg-surface-800'
                             )}
                         >
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent-400 to-primary-400 flex items-center justify-center flex-shrink-0">
-                                <SparklesIcon className="w-5 h-5 text-white" />
-                            </div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                     <p className="font-medium truncate">{thread.title}</p>
@@ -200,7 +216,7 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
                                     )}
                                 </div>
                                 <p className="text-xs text-surface-500">
-                                    {thread.model} • {formatRelativeTime(thread.updated_at)}
+                                    {thread?.model?.startsWith('gemini') ? 'Gemini API' : 'OpenAI API'} • {formatRelativeTime(thread.updated_at)}
                                 </p>
                             </div>
                         </Link>

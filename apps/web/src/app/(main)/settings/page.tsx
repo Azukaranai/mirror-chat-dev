@@ -46,9 +46,9 @@ export default function SettingsPage() {
 
             if (!canceled && !error && data) {
                 const keys: { openai?: string; google?: string } = {};
-                data.forEach((row) => {
+                data.forEach((row: any) => {
                     if (row.provider === 'openai' || row.provider === 'google') {
-                        keys[row.provider] = row.key_last4;
+                        keys[row.provider as 'openai' | 'google'] = row.key_last4;
                     }
                 });
                 setSavedKeys(keys);
@@ -104,10 +104,16 @@ export default function SettingsPage() {
             // Safer to use function but function needs update. 
             // Let's implement direct delete here for simplicity as we have RLS?
             // Actually RLS allows delete own keys.
+            const userId = (await supabase.auth.getUser()).data.user?.id;
+            if (!userId) {
+                setMessage({ type: 'error', text: 'ユーザー情報の取得に失敗しました' });
+                return;
+            }
+
             const { error } = await supabase
                 .from('user_llm_keys')
                 .delete()
-                .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+                .eq('user_id', userId)
                 .eq('provider', provider);
 
             if (error) {
@@ -204,8 +210,8 @@ export default function SettingsPage() {
                                     setApiKey('');
                                 }}
                                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${provider === opt.value
-                                        ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                                        : 'border-transparent text-surface-500 hover:text-surface-700 dark:hover:text-surface-300'
+                                    ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                                    : 'border-transparent text-surface-500 hover:text-surface-700 dark:hover:text-surface-300'
                                     }`}
                             >
                                 {opt.label}

@@ -38,7 +38,7 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
     }, [tabs, activeTab, setActiveTab]);
 
     useEffect(() => {
-        const handlePointerMove = (event: PointerEvent) => {
+        const handlePointerMove = (event: globalThis.PointerEvent) => {
             if (!draggingRef.current) return;
             const rect = containerRef.current?.getBoundingClientRect();
             if (!rect) return;

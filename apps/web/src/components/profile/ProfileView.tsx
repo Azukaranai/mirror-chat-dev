@@ -6,6 +6,55 @@ import { createClient } from '@/lib/supabase/client';
 import { getStorageUrl, getInitials } from '@/lib/utils';
 import type { Profile } from '@/types/database';
 
+// Image compression utility
+const compressImage = async (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (e) => {
+            const img = document.createElement('img');
+            img.src = e.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_SIZE = 800; // Resize to reasonable dimensions for avatar
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_SIZE) {
+                        height *= MAX_SIZE / width;
+                        width = MAX_SIZE;
+                    }
+                } else {
+                    if (height > MAX_SIZE) {
+                        width *= MAX_SIZE / height;
+                        height = MAX_SIZE;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('Failed to get canvas context'));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) resolve(blob);
+                        else reject(new Error('Canvas to Blob failed'));
+                    },
+                    file.type === 'image/png' ? 'image/png' : 'image/jpeg', // Use JPEG for better compression unless PNG
+                    0.8
+                );
+            };
+            img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+    });
+};
+
 // Icons
 const PencilIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -47,15 +96,8 @@ export function ProfileView({ profile, userId }: ProfileViewProps) {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        // Validate file type
         if (!file.type.startsWith('image/')) {
             setError('画像ファイルを選択してください');
-            return;
-        }
-
-        // Validate file size (max 2MB)
-        if (file.size > 2 * 1024 * 1024) {
-            setError('ファイルサイズは2MB以下にしてください');
             return;
         }
 
@@ -63,14 +105,31 @@ export function ProfileView({ profile, userId }: ProfileViewProps) {
         setError(null);
 
         try {
+            let fileToUpload: File | Blob = file;
+
+            // Compress if larger than 2MB
+            if (file.size > 2 * 1024 * 1024) {
+                try {
+                    fileToUpload = await compressImage(file);
+                } catch (err) {
+                    console.error('Compression failed:', err);
+                    setError('画像の処理に失敗しました。別の画像をお試しください。');
+                    setUploading(false);
+                    return;
+                }
+            }
+
             // Generate unique filename
-            const ext = file.name.split('.').pop();
+            const ext = file.name.split('.').pop() || 'jpg';
             const filename = `${userId}/${Date.now()}.${ext}`;
 
             // Upload to storage
             const { error: uploadError } = await supabase.storage
                 .from('avatars')
-                .upload(filename, file, { upsert: true });
+                .upload(filename, fileToUpload, {
+                    upsert: true,
+                    contentType: fileToUpload.type || 'image/jpeg'
+                });
 
             if (uploadError) {
                 setError('アップロードに失敗しました');

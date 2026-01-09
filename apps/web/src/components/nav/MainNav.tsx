@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/lib/stores';
+import { APP_VERSION } from '@/lib/version';
 
 // Icons as inline SVGs for simplicity
 const UserIcon = ({ className }: { className?: string }) => (
@@ -104,6 +105,12 @@ export function MainNav() {
                     <SettingsIcon className="w-6 h-6 flex-shrink-0" />
                     <span className="hidden lg:block font-medium">設定</span>
                 </Link>
+                {/* Version - subtle display */}
+                <div className="hidden lg:block px-3 pt-3 pb-1">
+                    <span className="text-xs text-surface-400 dark:text-surface-600">
+                        v{APP_VERSION}
+                    </span>
+                </div>
             </div>
         </div>
     );
