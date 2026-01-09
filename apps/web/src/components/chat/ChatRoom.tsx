@@ -141,6 +141,16 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         setSupabase(getSupabaseClient());
     }, []);
 
+    const [isMobile, setIsMobile] = useState(false);
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+
+
     const handleScroll = () => {
         if (!scrollContainerRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
@@ -220,6 +230,19 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             }
         });
     }, []);
+
+    // Adjust scroll when visual viewport changes (e.g. mobile keyboard opens)
+    useEffect(() => {
+        if (!isMobile) return;
+        const handleResize = () => {
+            scrollToBottom('auto');
+        };
+        // Use visualViewport if available as it reflects the actual visible area minus keyboard
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', handleResize);
+            return () => window.visualViewport?.removeEventListener('resize', handleResize);
+        }
+    }, [isMobile, scrollToBottom]);
 
     const formatFileSize = (size: number) => {
         if (size < 1024) return `${size}B`;
@@ -354,13 +377,37 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         .select('display_name, avatar_path, handle')
                         .eq('user_id', (otherMember as any).user_id)
                         .single();
-                    name = (profile as any)?.display_name || (profile as any)?.handle || 'Unknown';
+
+                    let displayName = (profile as any)?.display_name || (profile as any)?.handle || 'Unknown';
+                    const handle = (profile as any)?.handle || null;
                     avatarPath = (profile as any)?.avatar_path || null;
+
+                    // Try to fetch nickname
+                    try {
+                        const { data: friendship } = await supabase
+                            .from('friendships')
+                            .select('requester_id, requester_nickname, addressee_nickname')
+                            .or(`and(requester_id.eq.${userId},addressee_id.eq.${(otherMember as any).user_id}),and(requester_id.eq.${(otherMember as any).user_id},addressee_id.eq.${userId})`)
+                            .maybeSingle();
+
+                        if (friendship) {
+                            if (friendship.requester_id === userId && friendship.requester_nickname) {
+                                displayName = friendship.requester_nickname;
+                            } else if (friendship.requester_id !== userId && friendship.addressee_nickname) {
+                                displayName = friendship.addressee_nickname;
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore error if columns don't exist yet
+                        console.warn('Failed to fetch nickname', e);
+                    }
+
+                    name = displayName;
                     setRoomInfo({
                         name,
                         avatar_path: avatarPath,
                         type: (room as any).type,
-                        handle: (profile as any)?.handle || null,
+                        handle,
                     });
                 } else {
                     setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
@@ -398,69 +445,70 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 .order('created_at', { ascending: true });
 
             let messageRows = msgs as any[] | null;
-            if (msgsError) {
-                const fallback = await supabase
-                    .from('messages')
-                    .select('id, content, kind, reply_to_message_id, sender_user_id, created_at')
-                    .eq('room_id', roomId)
-                    .order('created_at', { ascending: true });
-                if (fallback.error) {
-                    setLoadError(fallback.error.message || 'メッセージの取得に失敗しました');
-                    setLoading(false);
-                    return;
-                }
-                messageRows = fallback.data as any[] | null;
+
+            if (msgsError || !messageRows) {
+                setLoadError('メッセージの取得に失敗しました');
+                setLoading(false);
+                return;
             }
 
-            if (messageRows) {
-                const senderIds = Array.from(
-                    new Set(
-                        (messageRows as any[])
-                            .map((m) => m.sender_user_id as string | null)
-                            .filter((id): id is string => Boolean(id))
-                    )
-                );
-                const profileMap = new Map<string, { display_name: string; avatar_path: string | null }>();
-                if (senderIds.length > 0) {
-                    const { data: profiles } = await supabase
-                        .from('profiles')
-                        .select('user_id, display_name, avatar_path, handle')
-                        .in('user_id', senderIds);
-                    (profiles as any[] | null)?.forEach((profile) => {
-                        profileMap.set(profile.user_id, {
-                            display_name: profile.display_name || profile.handle || 'Unknown',
-                            avatar_path: profile.avatar_path,
-                        });
+            // Get unique sender IDs
+            const senderIds = Array.from(new Set(messageRows.map((m) => m.sender_user_id)));
+            const { data: profiles } = await supabase
+                .from('profiles')
+                .select('user_id, display_name, avatar_path')
+                .in('user_id', senderIds);
+
+            // Fetch nicknames for senders
+            let nicknames: Record<string, string> = {};
+            try {
+                // Fetch all my friendships to resolve nicknames
+                const { data: myFriendships } = await supabase
+                    .from('friendships')
+                    .select('requester_id, addressee_id, requester_nickname, addressee_nickname')
+                    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
+
+                if (myFriendships && myFriendships.length > 0) {
+                    myFriendships.forEach((f: any) => {
+                        const isRequester = f.requester_id === userId;
+                        const partnerId = isRequester ? f.addressee_id : f.requester_id;
+                        const nickname = isRequester ? f.requester_nickname : f.addressee_nickname;
+                        if (nickname) {
+                            nicknames[partnerId] = nickname;
+                        }
                     });
                 }
-
-                const formattedMsgs: Message[] = messageRows.map((m: any) => {
-                    const profile = profileMap.get(m.sender_user_id) || null;
-                    const sharedCard = m.kind === 'shared_ai_thread'
-                        ? parseSharedAIThreadCard(m.content)
-                        : null;
-                    return {
-                        id: m.id,
-                        content: m.content,
-                        kind: m.kind,
-                        reply_to_message_id: m.reply_to_message_id,
-                        sender_user_id: m.sender_user_id,
-                        sender_name: profile?.display_name || 'Unknown',
-                        sender_avatar: profile?.avatar_path || null,
-                        created_at: m.created_at,
-                        is_mine: m.sender_user_id === userId,
-                        attachments: (m.message_attachments || []) as AttachmentItem[],
-                        sharedCard,
-                    };
-                });
-                setMessages(formattedMsgs);
+            } catch (e) {
+                console.warn('Failed to fetch nicknames', e);
             }
 
+            const formattedMessages: Message[] = messageRows.map((msg) => {
+                const sender = profiles?.find((p: any) => p.user_id === msg.sender_user_id);
+                const displayName = nicknames[msg.sender_user_id] || (sender as any)?.display_name || 'Unknown';
+
+                return {
+                    id: msg.id,
+                    content: msg.content,
+                    kind: msg.kind,
+                    sender_user_id: msg.sender_user_id,
+                    sender_name: displayName,
+                    sender_avatar: (sender as any)?.avatar_path,
+                    created_at: msg.created_at,
+                    is_mine: msg.sender_user_id === userId,
+                    reply_to_message_id: msg.reply_to_message_id,
+                    attachments: (msg.message_attachments || []) as AttachmentItem[],
+                    sharedCard: msg.kind === 'shared_ai_thread'
+                        ? parseSharedAIThreadCard(msg.content)
+                        : null,
+                };
+            });
+            setMessages(formattedMessages);
+
             // Update last read
-            if (messageRows && messageRows.length > 0) {
+            if (messageRows.length > 0) {
                 await (supabase
                     .from('room_members') as any)
-                    .update({ last_read_message_id: (messageRows as any[])[(messageRows as any[]).length - 1].id })
+                    .update({ last_read_message_id: messageRows[messageRows.length - 1].id })
                     .eq('room_id', roomId)
                     .eq('user_id', userId);
             }
@@ -871,8 +919,13 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (!supabase || sending) return;
+
+        // On mobile, Enter should just insert a newline (default behavior)
+        // On desktop, Enter sends, Shift+Enter newlines
+        if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
+            if (e.nativeEvent.isComposing) return;
             e.preventDefault();
             handleSend();
         }
@@ -1637,6 +1690,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             value={input}
                             onChange={(e) => handleInputChange(e.target.value)}
                             onKeyDown={handleKeyDown}
+                            onFocus={() => { if (isMobile) setTimeout(() => scrollToBottom('auto'), 300); }}
                             onBlur={stopTyping}
                             placeholder="メッセージを入力..."
                             rows={1}

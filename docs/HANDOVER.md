@@ -83,3 +83,16 @@ CREATE TABLE ai_stream_events (
 ---
 
 > **要約**: 汎用的なチャット部分は「作る」のではなく「探して使う」に切り替え、我々は「AIと人間がどうコラボレーションするか」という体験作り（AI Thread機能）に全リソースを注ぐべきです。
+
+## 6. 最新のアップデート (2026-01-09)
+### 実装済み機能
+1. **カスタムフレンドニックネーム (Custom Friend Nicknames)**
+   - 友達に自分だけのニックネームを設定可能。
+   - 実装箇所: `friendships` テーブル拡張, `FriendsList.tsx`, `ChatRoom.tsx`, `room_summaries` (View)。
+2. **モバイル版Chat UX改善**
+   - モバイル(幅<768px)でのEnterキー送信を無効化し、改行可能に修正。
+
+### 現在のブロッカーと解決策
+- **Supabaseローカル環境のエラー**: Docker Desktopの不調により `npx supabase start` が失敗する場合がある。
+  - **解決策**: Docker Desktopを再起動し、`npx supabase start` -> `npx supabase db push` を実行する。
+

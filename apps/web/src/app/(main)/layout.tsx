@@ -29,9 +29,7 @@ export default async function MainLayout({
             </main>
 
             {/* Mobile Bottom Navigation */}
-            <nav className="md:hidden border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 safe-bottom">
-                <MobileNav />
-            </nav>
+            <MobileNav />
 
             {/* Overlay Windows (Desktop only) */}
             <div className="hidden md:block">

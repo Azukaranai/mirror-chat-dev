@@ -40,6 +40,13 @@ const navItems = [
 export function MobileNav() {
     const pathname = usePathname();
 
+    // Hide mobile nav on chat room pages (/talk/[id]) to prevent keyboard interference
+    const isChatRoom = pathname.startsWith('/talk/') && pathname.split('/').length > 2;
+
+    if (isChatRoom) {
+        return null;
+    }
+
     const isActive = (href: string) => {
         if (href === '/talk') {
             return pathname.startsWith('/talk');
@@ -51,25 +58,27 @@ export function MobileNav() {
     };
 
     return (
-        <div className="flex items-center justify-around py-1 px-1">
-            {navItems.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(item.href);
+        <nav className="md:hidden border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 safe-bottom">
+            <div className="flex items-center justify-around py-1 px-1">
+                {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActive(item.href);
 
-                return (
-                    <Link
-                        key={item.id}
-                        href={item.href}
-                        className={cn(
-                            'nav-item flex-1 max-w-[80px]',
-                            active && 'active'
-                        )}
-                    >
-                        <Icon className="w-6 h-6" />
-                        <span className="sr-only">{item.label}</span>
-                    </Link>
-                );
-            })}
-        </div>
+                    return (
+                        <Link
+                            key={item.id}
+                            href={item.href}
+                            className={cn(
+                                'nav-item flex-1 max-w-[80px]',
+                                active && 'active'
+                            )}
+                        >
+                            <Icon className="w-6 h-6" />
+                            <span className="sr-only">{item.label}</span>
+                        </Link>
+                    );
+                })}
+            </div>
+        </nav>
     );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { getStorageUrl, getInitials } from '@/lib/utils';
+import { Dialog } from '@headlessui/react';
 
 const UserPlusIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -29,10 +30,17 @@ const ChatBubbleIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const PencilIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+    </svg>
+);
+
 interface Friend {
     id: string;
     user_id: string;
     display_name: string;
+    nickname: string | null;
     handle: string;
     avatar_path: string | null;
     status: 'pending' | 'accepted';
@@ -62,18 +70,23 @@ export function FriendsList({ userId }: FriendsListProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Nickname editing state
+    const [editingFriend, setEditingFriend] = useState<Friend | null>(null);
+    const [editNickname, setEditNickname] = useState('');
+    const [savingNickname, setSavingNickname] = useState(false);
+
     const fetchFriends = useCallback(async () => {
         setLoading(true);
         setError(null);
 
         const { data: asRequester, error: requesterError } = await supabase
             .from('friendships')
-            .select('id, status, requester_id, addressee_id')
+            .select('id, status, requester_id, addressee_id, requester_nickname, addressee_nickname')
             .eq('requester_id', userId);
 
         const { data: asAddressee, error: addresseeError } = await supabase
             .from('friendships')
-            .select('id, status, requester_id, addressee_id')
+            .select('id, status, requester_id, addressee_id, requester_nickname, addressee_nickname')
             .eq('addressee_id', userId);
 
         if (requesterError || addresseeError) {
@@ -112,10 +125,16 @@ export function FriendsList({ userId }: FriendsListProps) {
         const addRow = (row: any, profile: any, isRequester: boolean) => {
             if (!profile) return;
 
+            // Determine which nickname to use
+            // If I am requester, I see requester_nickname (which I set for addressee)
+            // If I am addressee, I see addressee_nickname (which I set for requester)
+            const nickname = isRequester ? row.requester_nickname : row.addressee_nickname;
+
             const friend: Friend = {
                 id: row.id,
                 user_id: profile.user_id,
                 display_name: profile.display_name,
+                nickname: nickname,
                 handle: profile.handle,
                 avatar_path: profile.avatar_path,
                 status: row.status,
@@ -338,16 +357,6 @@ export function FriendsList({ userId }: FriendsListProps) {
         await fetchFriends();
     };
 
-    const incomingRequests = useMemo(
-        () => pendingRequests.filter((friend) => !friend.is_requester),
-        [pendingRequests]
-    );
-
-    const outgoingRequests = useMemo(
-        () => pendingRequests.filter((friend) => friend.is_requester),
-        [pendingRequests]
-    );
-
     // Start DM
     const handleStartChat = async (friendUserId: string) => {
         const { data: roomId, error } = await (supabase.rpc as any)('create_dm_room', {
@@ -361,6 +370,50 @@ export function FriendsList({ userId }: FriendsListProps) {
 
         window.location.href = `/talk/${roomId}`;
     };
+
+    // Save Nickname
+    const handleSaveNickname = async () => {
+        if (!editingFriend) return;
+
+        setSavingNickname(true);
+        const updateData: any = {};
+
+        // If I am requester, I update requester_nickname
+        if (editingFriend.is_requester) {
+            updateData.requester_nickname = editNickname.trim() || null;
+        } else {
+            // If I am addressee, I update addressee_nickname
+            updateData.addressee_nickname = editNickname.trim() || null;
+        }
+
+        const { error } = await (supabase
+            .from('friendships') as any)
+            .update(updateData)
+            .eq('id', editingFriend.id);
+
+        if (error) {
+            setError('表示名の更新に失敗しました');
+        } else {
+            await fetchFriends();
+            setEditingFriend(null);
+        }
+        setSavingNickname(false);
+    };
+
+    const openEditModal = (friend: Friend) => {
+        setEditingFriend(friend);
+        setEditNickname(friend.nickname || friend.display_name);
+    };
+
+    const incomingRequests = useMemo(
+        () => pendingRequests.filter((friend) => !friend.is_requester),
+        [pendingRequests]
+    );
+
+    const outgoingRequests = useMemo(
+        () => pendingRequests.filter((friend) => friend.is_requester),
+        [pendingRequests]
+    );
 
     const searchIsFriend = searchRelation?.status === 'accepted';
     const searchIncoming = searchRelation?.status === 'pending' && searchRelation.addressee_id === userId;
@@ -587,7 +640,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                         )}
                     </div>
                     {friends.map((friend) => (
-                        <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
+                        <div key={friend.id} className="group flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
                             <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
                                 {friend.handle === 'mirror' ? (
                                     <Image
@@ -610,15 +663,36 @@ export function FriendsList({ userId }: FriendsListProps) {
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="font-medium truncate">{friend.display_name}</p>
+                                <div className="flex items-center gap-2">
+                                    <p className="font-medium truncate">
+                                        {friend.nickname || friend.display_name}
+                                    </p>
+                                    {friend.nickname && (
+                                        <p className="text-xs text-surface-400 truncate hidden md:block">
+                                            ({friend.display_name})
+                                        </p>
+                                    )}
+                                </div>
                                 <p className="text-xs text-surface-500">@{friend.handle}</p>
                             </div>
-                            <button
-                                onClick={() => handleStartChat(friend.user_id)}
-                                className="btn-icon p-1.5"
-                            >
-                                <ChatBubbleIcon className="w-5 h-5" />
-                            </button>
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center">
+                                <button
+                                    onClick={() => openEditModal(friend)}
+                                    className="btn-icon p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="表示名を変更"
+                                >
+                                    <PencilIcon className="w-4 h-4 text-surface-400" />
+                                </button>
+                                <button
+                                    onClick={() => handleStartChat(friend.user_id)}
+                                    className="btn-icon p-1.5 ml-1"
+                                    title="トーク"
+                                >
+                                    <ChatBubbleIcon className="w-5 h-5" />
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -630,6 +704,52 @@ export function FriendsList({ userId }: FriendsListProps) {
                     </div>
                 )
             )}
+
+            {/* Edit Nickname Modal */}
+            <Dialog
+                open={!!editingFriend}
+                onClose={() => setEditingFriend(null)}
+                className="relative z-50"
+            >
+                <div className="fixed inset-0 bg-black/30 md:bg-black/50" aria-hidden="true" />
+
+                <div className="fixed inset-0 flex items-center justify-center p-4">
+                    <Dialog.Panel className="w-full max-w-sm bg-white dark:bg-surface-900 rounded-xl shadow-xl p-6 border border-surface-200 dark:border-surface-700">
+                        <Dialog.Title className="text-lg font-semibold mb-4">表示名を変更</Dialog.Title>
+
+                        <div className="mb-6">
+                            <p className="text-sm text-surface-500 mb-2">
+                                この名前はあなたにのみ表示されます。
+                            </p>
+                            <input
+                                type="text"
+                                value={editNickname}
+                                onChange={(e) => setEditNickname(e.target.value)}
+                                className="input w-full"
+                                placeholder={editingFriend?.display_name}
+                                autoFocus
+                            />
+                        </div>
+
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setEditingFriend(null)}
+                                className="btn-secondary"
+                                disabled={savingNickname}
+                            >
+                                キャンセル
+                            </button>
+                            <button
+                                onClick={handleSaveNickname}
+                                className="btn-primary"
+                                disabled={savingNickname}
+                            >
+                                {savingNickname ? '保存中...' : '保存'}
+                            </button>
+                        </div>
+                    </Dialog.Panel>
+                </div>
+            </Dialog>
         </div>
     );
 }
