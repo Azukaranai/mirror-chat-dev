@@ -1,6 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 
 const SparklesIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -8,7 +10,55 @@ const SparklesIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-export function EmptyThread() {
+interface EmptyThreadProps {
+    userId: string;
+}
+
+export function EmptyThread({ userId }: EmptyThreadProps) {
+    const router = useRouter();
+    const [creating, setCreating] = useState(false);
+
+    const handleCreate = async () => {
+        setCreating(true);
+        const supabase = createClient();
+
+        // Determine initial model based on available keys
+        let initialModel = 'gpt-5.2'; // Default
+        try {
+            const { data: keys } = await supabase
+                .from('user_llm_keys')
+                .select('provider')
+                .eq('user_id', userId);
+
+            const providers = new Set(keys?.map((k: any) => k.provider) || []);
+
+            if (providers.has('openai')) {
+                initialModel = 'gpt-5.2';
+            } else if (providers.has('google')) {
+                initialModel = 'gemini-3.0';
+            }
+        } catch (e) {
+            // Ignore error
+        }
+
+        const { data: newThread, error } = await supabase
+            .from('ai_threads')
+            .insert({
+                owner_user_id: userId,
+                title: '新規スレッド',
+                model: initialModel,
+            } as any)
+            .select()
+            .single();
+
+        if (!error && newThread) {
+            router.push(`/ai/${(newThread as any).id}`);
+        } else {
+            console.error('Failed to create thread:', error);
+            setCreating(false);
+        }
+    };
+
     return (
         <div className="text-center p-8">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-accent-100 to-primary-100 dark:from-accent-900/30 dark:to-primary-900/30 flex items-center justify-center">
@@ -20,9 +70,16 @@ export function EmptyThread() {
                 <br />
                 新しいAIスレッドを作成しましょう
             </p>
-            <Link href="/ai/new" className="btn-primary">
-                新規スレッドを作成
-            </Link>
+            <button onClick={handleCreate} disabled={creating} className="btn-primary">
+                {creating ? (
+                    <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        作成中...
+                    </span>
+                ) : (
+                    '新規スレッドを作成'
+                )}
+            </button>
         </div>
     );
 }
