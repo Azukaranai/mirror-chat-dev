@@ -838,7 +838,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         room_id: roomId,
                         sender_user_id: userId,
                         kind: attachmentsSnapshot.length > 0 ? 'attachment' : 'text',
-                        content: content || null,
+                        content: content || '',
                         reply_to_message_id: replySnapshot?.id ?? null,
                     } as any)
                     .select('id')
@@ -890,16 +890,22 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
             if (attachmentsSnapshot.length > 0) {
                 for (const file of attachmentsSnapshot) {
-                    const safeName = file.name.replace(/\s+/g, '_');
-                    const path = `${roomId}/${newMessage.id}/${Date.now()}_${safeName}`;
-                    const { error: uploadError } = await supabase.storage
+                    // Get file extension
+                    const ext = file.name.split('.').pop() || '';
+                    const fileName = `${crypto.randomUUID()}.${ext}`;
+                    const path = `${roomId}/${newMessage.id}/${fileName}`;
+
+                    const { data: uploadData, error: uploadError } = await supabase.storage
                         .from('chat-attachments')
                         .upload(path, file, {
                             contentType: file.type || 'application/octet-stream',
+                            cacheControl: '3600',
+                            upsert: false,
                         });
 
                     if (uploadError) {
-                        setAttachmentError('添付ファイルのアップロードに失敗しました');
+                        console.error('File upload error:', uploadError);
+                        setAttachmentError(`添付ファイルのアップロードに失敗しました: ${uploadError.message}`);
                         continue;
                     }
 
@@ -1545,7 +1551,9 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                         {hasAttachments && (
                                                             <div className="mt-2 space-y-2">
                                                                 {(msg.attachments || []).map((attachment) => {
-                                                                    const isImage = attachment.mime.startsWith('image/');
+                                                                    const ext = attachment.object_path.split('.').pop()?.toLowerCase();
+                                                                    const isImage = attachment.mime.startsWith('image/') ||
+                                                                        ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '');
                                                                     const imageUrl = getStorageUrl('chat-attachments', attachment.object_path);
 
                                                                     if (isImage) {
@@ -1721,26 +1729,38 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 )}
                 {pendingAttachments.length > 0 && (
                     <div className="mb-2 space-y-2">
-                        {pendingAttachments.map((file, index) => (
-                            <div
-                                key={`${file.name}-${index}`}
-                                className="flex items-center gap-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-2 py-1 text-xs"
-                            >
-                                <span className="text-sm">
-                                    {file.type.startsWith('image/') ? '🖼️' : '📎'}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate">{file.name}</p>
-                                    <p className="text-surface-500">{formatFileSize(file.size)}</p>
-                                </div>
-                                <button
-                                    onClick={() => handleRemovePendingAttachment(index)}
-                                    className="btn-ghost text-xs px-2 py-1"
+                        {pendingAttachments.map((file, index) => {
+                            const isImage = file.type.startsWith('image/');
+                            return (
+                                <div
+                                    key={`${file.name}-${index}`}
+                                    className="flex items-center gap-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-2 py-1 text-xs"
                                 >
-                                    削除
-                                </button>
-                            </div>
-                        ))}
+                                    {isImage ? (
+                                        <div className="relative w-10 h-10 rounded overflow-hidden flex-shrink-0">
+                                            <img
+                                                src={URL.createObjectURL(file)}
+                                                alt={file.name}
+                                                className="w-full h-full object-cover"
+                                                onLoad={(e) => URL.revokeObjectURL(e.currentTarget.src)}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <span className="text-sm">📎</span>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate">{file.name}</p>
+                                        <p className="text-surface-500">{formatFileSize(file.size)}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleRemovePendingAttachment(index)}
+                                        className="btn-ghost text-xs px-2 py-1"
+                                    >
+                                        削除
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
                 {attachmentError && (
