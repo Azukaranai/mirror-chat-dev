@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:e2e": "playwright test",
-    "pages:build": "next build && next-on-pages && bash scripts/broadcast-release.sh",
+    "pages:build": "node scripts/generate-build-info.js && next build && next-on-pages && bash scripts/broadcast-release.sh",
     "pages:preview": "next-on-pages dev"
   },
   "dependencies": {
