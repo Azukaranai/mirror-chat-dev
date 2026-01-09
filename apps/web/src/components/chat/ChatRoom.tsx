@@ -8,11 +8,18 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { getStorageUrl, getInitials, formatMessageTime, formatDateDivider, parseSharedAIThreadCard, cn } from '@/lib/utils';
 import { useChatStore, useOverlayStore, useSplitStore } from '@/lib/stores';
 import type { TypingPayload } from '@/types';
+import { EditNicknameDialog } from '../profile/EditNicknameDialog';
 
 // Icons
 const ArrowLeftIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+    </svg>
+);
+
+const PencilIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
     </svg>
 );
 
@@ -79,6 +86,7 @@ interface RoomInfo {
     avatar_path: string | null;
     type: 'dm' | 'group';
     handle?: string | null;
+    friendId?: string;
 }
 
 interface ChatRoomProps {
@@ -95,8 +103,10 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const addTypingUser = useChatStore((state) => state.addTypingUser);
     const removeTypingUser = useChatStore((state) => state.removeTypingUser);
     const setTypingUsers = useChatStore((state) => state.setTypingUsers);
+    const fetchNotifications = useChatStore((state) => state.fetchNotifications);
     const [messages, setMessages] = useState<Message[]>([]);
     const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
+    const [isEditingName, setIsEditingName] = useState(false);
     const [input, setInput] = useState('');
     const [replyTo, setReplyTo] = useState<Message | null>(null);
     const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
@@ -127,9 +137,12 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 createdAt?: string;
                 owner?: { userId: string; displayName: string; avatarPath: string | null };
                 model?: string;
+                title?: string;
+                ownerHasKey?: boolean;
             }
         >
     >({});
+    const [myApiKeys, setMyApiKeys] = useState<Record<string, boolean>>({});
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +166,43 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    // Fetch my api keys with realtime
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const fetchKeys = () => {
+            supabase.from('user_llm_keys').select('provider').eq('user_id', userId)
+                .then(({ data }: any) => {
+                    if (data) {
+                        setMyApiKeys({
+                            google: data.some((k: any) => k.provider === 'google'),
+                            openai: data.some((k: any) => k.provider === 'openai'),
+                        });
+                    }
+                });
+        };
+
+        fetchKeys();
+
+        const channel = supabase
+            .channel('my_api_keys_updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'user_llm_keys',
+                    filter: `user_id=eq.${userId}`,
+                },
+                fetchKeys
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [supabase, userId]);
 
 
 
@@ -413,6 +463,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         avatar_path: avatarPath,
                         type: (room as any).type,
                         handle,
+                        friendId: (otherMember as any).user_id,
                     });
                 } else {
                     setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
@@ -517,6 +568,9 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     .update({ last_read_message_id: messageRows[messageRows.length - 1].id })
                     .eq('room_id', roomId)
                     .eq('user_id', userId);
+
+                // Refresh notifications
+                fetchNotifications();
             }
 
             setLoading(false);
@@ -646,7 +700,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             channelRef.current = null;
             setTypingUsers(roomId, []);
         };
-    }, [supabase, roomId, userId, addTypingUser, removeTypingUser, setTypingUsers]);
+    }, [supabase, roomId, userId, addTypingUser, removeTypingUser, setTypingUsers, fetchNotifications]);
 
     // Listen for new message signals from RoomList (via ChatStore)
     const newMessageSignal = useChatStore((state) => state.newMessageSignal);
@@ -753,7 +807,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
             const { data: threads } = await supabase
                 .from('ai_threads')
-                .select('id, archived_at, created_at, owner_user_id, model')
+                .select('id, title, archived_at, created_at, owner_user_id, model')
                 .in('id', uniqueIds);
 
             if (!threads) return;
@@ -764,6 +818,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 .from('profiles')
                 .select('user_id, display_name, avatar_path, handle')
                 .in('user_id', ownerIds);
+
+            // Fetch key status (RPC)
+            const { data: keyStatus } = await supabase
+                .rpc('get_thread_owner_key_status', { p_thread_ids: uniqueIds });
+
+            const keyMap = new Map();
+            if (keyStatus) {
+                (keyStatus as any[]).forEach((k: any) => {
+                    keyMap.set(k.thread_id, k.has_key);
+                });
+            }
 
             setThreadStatus((prev) => {
                 const next = { ...prev };
@@ -776,6 +841,8 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             archived: !!found.archived_at,
                             createdAt: found.created_at,
                             model: found.model,
+                            title: found.title,
+                            ownerHasKey: keyMap.get(id) || false,
                             owner: owner
                                 ? {
                                     userId: owner.user_id,
@@ -798,6 +865,44 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             checkThreads();
         }
     }, [messages, supabase]);
+
+    // Realtime update for shared thread cards
+    useEffect(() => {
+        if (!supabase) return;
+
+        const channel = supabase
+            .channel(`room_thread_updates_global_${roomId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'ai_threads',
+                },
+                (payload: any) => {
+                    const updated = payload.new as any;
+                    setThreadStatus((prev) => {
+                        if (prev[updated.id]) {
+                            return {
+                                ...prev,
+                                [updated.id]: {
+                                    ...prev[updated.id],
+                                    title: updated.title,
+                                    model: updated.model,
+                                    archived: !!updated.archived_at,
+                                },
+                            };
+                        }
+                        return prev;
+                    });
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [supabase, roomId]);
 
     // Fetch threads for picker
     const fetchThreadsForPicker = async () => {
@@ -1032,6 +1137,39 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         }
     };
 
+    const handleSaveNickname = async (newName: string) => {
+        if (!roomInfo?.friendId) return;
+
+        // Find friendship
+        const { data: friendship, error: fetchError } = await (supabase
+            .from('friendships') as any)
+            .select('id, requester_id, addressee_id')
+            .or(`and(requester_id.eq.${userId},addressee_id.eq.${roomInfo.friendId}),and(requester_id.eq.${roomInfo.friendId},addressee_id.eq.${userId})`)
+            .maybeSingle();
+
+        if (fetchError || !friendship) {
+            console.error('Friendship not found or error:', fetchError);
+            return;
+        }
+
+        const updateData = friendship.requester_id === userId
+            ? { requester_nickname: newName }
+            : { addressee_nickname: newName };
+
+        const { error } = await (supabase
+            .from('friendships') as any)
+            .update(updateData)
+            .eq('id', friendship.id);
+
+        if (error) {
+            console.error('Failed to update nickname', error);
+        } else {
+            // Update local state
+            setRoomInfo((prev) => prev ? ({ ...prev, name: newName }) : null);
+            // Refresh friends list if open elsewhere? fetchNotifications might not be enough but it's fine.
+        }
+    };
+
     const handleAttachClick = () => {
         setAttachMenuOpen(!attachMenuOpen);
     };
@@ -1101,13 +1239,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         return list.filter((user) => user.userId !== userId && now - user.timestamp < 4000);
     }, [typingUsers, roomId, userId]);
 
-    if (loading) {
-        return (
-            <div className="h-full w-full flex items-center justify-center">
-                <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-        );
-    }
+    // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
 
     return (
         <div className="flex flex-col h-full relative">
@@ -1139,8 +1271,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         </span>
                     )}
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex items-center">
                     <h2 className="font-semibold truncate">{roomInfo?.name || 'トーク'}</h2>
+                    {roomInfo?.type === 'dm' && (
+                        <button
+                            onClick={() => setIsEditingName(true)}
+                            className="ml-2 text-surface-400 hover:text-surface-600 transition-colors flex-shrink-0"
+                            title="表示名を変更"
+                        >
+                            <PencilIcon className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
 
                 {/* Search button */}
@@ -1308,8 +1449,14 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             <div
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-auto px-4 pt-4 pb-20 space-y-4 chat-bg"
+                className="flex-1 overflow-auto px-4 pt-4 pb-20 space-y-4 chat-bg relative"
             >
+                {/* Loading overlay */}
+                {loading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-surface-900 z-10">
+                        <div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                )}
                 {loadError && (
                     <div className="rounded-lg border border-error-200/60 bg-error-50/80 px-3 py-2 text-xs text-error-700 dark:border-error-500/30 dark:bg-error-950/40 dark:text-error-300">
                         {loadError}
@@ -1447,16 +1594,38 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                                     )}
                                                                 </div>
                                                                 <p className="font-bold text-sm leading-tight text-surface-900 dark:text-surface-100 line-clamp-2">
-                                                                    {sharedCard.titleSnapshot || '名称未設定のスレッド'}
+                                                                    {threadStatus[sharedCard.threadId]?.title || sharedCard.titleSnapshot || '名称未設定のスレッド'}
                                                                 </p>
                                                             </div>
                                                         </div>
 
                                                         {/* Metadata Row */}
                                                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 textxs text-surface-500 mb-3 px-1 text-[10px]">
-                                                            <span className="font-medium bg-surface-100 dark:bg-surface-700 px-1.5 py-0.5 rounded">
-                                                                {(threadStatus[sharedCard.threadId]?.model || sharedCard.modelSnapshot)?.replace('gpt-', 'GPT-').replace('gemini-', 'Gemini ')}
-                                                            </span>
+                                                            {(() => {
+                                                                const status = threadStatus[sharedCard.threadId];
+                                                                const model = status?.model || sharedCard.modelSnapshot;
+                                                                const provider = (model || '').startsWith('gemini') ? 'google' : 'openai';
+                                                                const myKey = myApiKeys[provider];
+                                                                const ownerKey = status?.ownerHasKey;
+
+                                                                let style = "bg-surface-100 text-surface-500 dark:bg-surface-700 dark:text-surface-400"; // Default Gray
+
+                                                                const emeraldStyle = "bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800";
+
+                                                                if (myKey) {
+                                                                    // 自分のがあれば（相手があろうとなかろうと）「あなたのAPI」状態と同じ色
+                                                                    style = emeraldStyle;
+                                                                } else if (ownerKey) {
+                                                                    // 相手のみ: My keyがない時は同じ色（背景は灰色）で文字だけ緑
+                                                                    style = "bg-surface-100 text-emerald-600 border border-transparent dark:bg-surface-700 dark:text-emerald-400";
+                                                                }
+
+                                                                return (
+                                                                    <span className={cn("font-medium px-1.5 py-0.5 rounded transition-colors", style)}>
+                                                                        {model?.replace('gpt-', 'GPT-').replace('gemini-', 'Gemini ') || 'Unknown'}
+                                                                    </span>
+                                                                );
+                                                            })()}
 
                                                             {(threadStatus[sharedCard.threadId]?.createdAt || sharedCard.createdAtSnapshot) && (
                                                                 <>
@@ -1883,6 +2052,14 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     </div>
                 </>
             )}
+
+            {/* Edit Nickname Dialog */}
+            <EditNicknameDialog
+                isOpen={isEditingName}
+                onClose={() => setIsEditingName(false)}
+                currentName={roomInfo?.name || ''}
+                onSave={handleSaveNickname}
+            />
         </div>
     );
 }

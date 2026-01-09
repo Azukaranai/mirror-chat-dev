@@ -5,6 +5,7 @@ import type { PointerEvent } from 'react';
 import { ChatRoom } from '@/components/chat/ChatRoom';
 import { AIThreadPanel } from '@/components/ai/AIThreadPanel';
 import { useSplitStore } from '@/lib/stores';
+import { createClient } from '@/lib/supabase/client';
 
 interface ChatSplitLayoutProps {
     roomId: string;
@@ -17,6 +18,7 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
         activeTabId,
         setActiveTab,
         removeTab,
+        updateTab,
         splitRatio,
         setSplitRatio,
     } = useSplitStore();
@@ -63,6 +65,38 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
             window.removeEventListener('pointerup', handlePointerUp);
         };
     }, [setSplitRatio]);
+
+    // Realtime update for tab titles
+    useEffect(() => {
+        const supabase = createClient();
+        const channel = supabase
+            .channel('split_view_global_updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'ai_threads',
+                },
+                (payload) => {
+                    const updated = payload.new as any;
+                    const currentTabs = useSplitStore.getState().tabs;
+                    const updateFn = useSplitStore.getState().updateTab;
+
+                    const targetTabs = currentTabs.filter(t => t.threadId === updated.id);
+                    targetTabs.forEach(tab => {
+                        if (tab.title !== updated.title) {
+                            updateFn(tab.tabId, { title: updated.title });
+                        }
+                    });
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
 
     const handleDividerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
         axisRef.current = window.innerWidth >= 768 ? 'vertical' : 'horizontal';

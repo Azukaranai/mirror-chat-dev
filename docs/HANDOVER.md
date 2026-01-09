@@ -3,96 +3,75 @@
 ## 1. プロジェクトの核心コンセプト
 **「TelegramのようなUI/UXを持つ高機能チャット」×「マルチLLM参加型AIスレッド」**
 
-本プロジェクトのユニークな価値は、単なるチャット機能ではなく、以下のAI連携機能にあります。
+本プロジェクトのユニークな価値は、以下のAI連携機能にあります。
 - **Bring Your Own Key (BYOK)**: ユーザー各自がOpenAI等のAPIキーを登録して利用。
 - **AIスレッドの共有**: AIとの対話スレッドを、友人とリアルタイムで共有（Read/Write権限管理）。
 - **介入機能**: AIと誰かの会話に、第三者が横から口出し（介入）できる独自の体験。
 
-## 2. 現状の振り返りと方針転換 (The Pivot)
+---
 
-### 課題: "チャットアプリを一から作るのは重すぎる"
-これまでの開発では、メッセージの送受信、リアルタイム同期、ルーム一覧、未読管理などの「一般的なチャット機能」の実装に多くの時間を費やしました。しかし、これらは既に世の中に最適解（CloneアプリやUIキット）が多数存在します。
+## 2. 直近の進捗状況 (2026-01-10 更新)
 
-### 新しい方針: "Clone & Inject"
-今後の開発（またはリスタート）においては、**「チャット機能は既存の優れたClone/Templateを流用し、独自のAI機能の実装のみに集中する」** という戦略を推奨します。
+### ✅ 解決済み (Resolved)
+1. **API Key保存機能の修正**:
+   - `key_set` Edge Functionおよびフロントエンド (`settings/page.tsx`) の認証処理を修正。
+   - Frontendから明示的に `Authorization` ヘッダーを送信し、Edge Function側も手動でJWT検証を行うように変更 (`--no-verify-jwt`)。
+2. **AIメッセージ送信機能の修正**:
+   - `ai_send_message` Edge Functionの認証問題を同様に修正。
+   - `gemini-3.0` (存在しないモデル) を `gemini-2.5-flash` に変更し、404エラーを解消。
+3. **Gemini APIの実装**:
+   - 不安定だったストリーミング (`streamGenerateContent`) を一時的に非ストリーミング (`generateContent`) に変更し、応答の確実性を向上。
+4. **UI/UXの改善**:
+   - **メッセージ重複の修正**: 楽観的更新とリアルタイム受信によるメッセージの二重表示を解消 (`AIThreadView.tsx`)。
+   - **キャンセル機能の実装**: 応答待ち中に送信ボタンを「✕」ボタンに変更し、スタックした処理をフロントエンド側でキャンセル可能に。
+   - **タイムアウト警告**: 応答に30秒以上かかった場合に警告メッセージを表示。
+
+### ⚠️ 現在の課題 (Current Issues)
+1. **履歴が表示されない問題**:
+   - メッセージ送信・保存は成功しているが、ページリロード後に履歴が表示されない（または消える）現象が発生。
+   - 原因: 恐らくRLSポリシーの問題か、Edge Functionが `service_role` で書き込んだデータを `auth.uid()` で読み取れていない可能性。
+   - **対応策**: `20260110000001_fix_ai_messages_insert.sql` マイグレーションを作成したが、適用待ちの状態。
+
+2. **Gemini ストリーミング**:
+   - 現在は非ストリーミング動作のため、応答が完了するまで「考え中」のままとなり、UXが良くない。
+   - ストリームパース処理 (`ai_send_message/index.ts`) のバグを修正し、ストリーミングに戻す必要がある。
+
+3. **スタックしたRunの処理**:
+   - タイムアウトなどで `status: running` のまま残ったレコードが原因で、新規メッセージが送れない場合がある。
+   - 定期的なクリーンアップ処理（pg_cron等）か、タイムアウト時の自動失敗処理が必要。
 
 ---
 
-## 3. 次のステップへの提案 (How to proceed)
+## 3. 次のステップ (Next Steps)
 
-### A案: 現在のコードベースを維持しつつ「Clone思考」を取り入れる場合
-現在の `mirror-chat-dev` を継続する場合でも、手動でチャットUIを作るのをやめ、ライブラリで代替します。
-- **UIコンポーネント**: `shadcn/ui` のChatコンポーネントや、`chat-ui-kit-react` などを導入し、デザイン調整工数を削減する。
-- **データ構造**: 現在進めている `room_summaries` (Telegram方式のデータ構造) への移行を完遂する。これがパフォーマンスの鍵です。
+### 優先度: 高 (Immediate Actions)
+1. **マイグレーションの適用**:
+   - 現在保留中の `20260110000001_fix_ai_messages_insert.sql` を適用する。
+   - コマンド: `npx supabase db push`
 
-### B案: 新規にCloneベースで作り直す場合 (推奨)
-もしリファクタリングのコストが過大であれば、以下の条件を満たすOSSのCloneを探し、そこに `ai_threads` のロジックだけを移植します。
-- **条件**: Next.js (App Router) + Supabase 対応
-- **検索キーワード**: `nextjs supabase chat starter`, `telegram clone nextjs`, `shadcn chat template`
-- **移植すべき独自の資産**:
-    1. **AI Supabase Edge Functions**: `ai_send_message` (OpenAI Stream処理)
-    2. **DB Schema**: `ai_threads`, `ai_stream_events` テーブル
-    3. **State Logic**: ユーザーごとのAPIキー管理ロジック
+2. **履歴表示のデバッグ**:
+   - マイグレーション適用後も履歴が出ない場合、ブラウザコンソールの `Fetching messages...` ログを確認し、SupabaseのRLSポリシー (`ai_messages`) を見直す。
 
----
+3. **Geminiストリーミングの復帰**:
+   - `ai_send_message` 内のGemini実装を `streamGenerateContent` に戻し、より堅牢なJSONストリームパーサーを実装する。
 
-## 4. 現在の実装状況 (Current Status)
-
-### Tech Stack
-- **Frontend**: Next.js 14 (App Router), Tailwind CSS
-- **Backend / DB**: Supabase (PostgreSQL, Auth, Realtime)
-- **Functions**: Supabase Edge Functions (Deno) for AI logic
-- **Infrastructure**: Cloudflare Pages
-
-### 完了している機能
-- ユーザー認証 (Supabase Auth)
-- 基本的なルーム作成・メッセージ送信・リアルタイム受信
-- AIスレッドのデータモデル設計 (`ai_threads`)
-- OpenAI APIへのストリーミングリクエスト処理 (Edge Functions)
-
-### 残っている課題 (Technical Debt)
-- **N+1問題**: ルーム一覧取得時に毎回全メッセージやプロフィールを見に行っている（`room_summaries`導入で解決予定）。
-- **AIストリームのUI反映**: バックエンドのイベントをフロントで綺麗に吹き出しとして表示する部分の結合。
-
-## 5. 独自のAI機能設計 (資産)
-以下の設計はCloneアプリには存在しないため、引き継ぎ対象として重要です。
-
-### DB Schema: AI Threads (抜粋)
-通常の `rooms` とは別に、AI専用のコンテキストを持つテーブルを設計しています。
-```sql
--- AI Thread: どのモデルを使うか、誰がオーナーか
-CREATE TABLE ai_threads (
-    id UUID PRIMARY KEY,
-    owner_id UUID REFERENCES auth.users,
-    model_config JSONB, -- { "model": "gpt-4", "temperature": 0.7 }
-    is_public BOOLEAN DEFAULT false
-);
-
--- AI Stream Events: ストリーミングのチャンクを保存しRealtimeで配信
-CREATE TABLE ai_stream_events (
-    id UUID PRIMARY KEY,
-    thread_id UUID REFERENCES ai_threads,
-    content TEXT,
-    event_type TEXT -- 'token', 'start', 'end'
-);
-```
-
-### Edge Function Logic
-ユーザーのAPIキーをセキュアに扱うため、クライアントから直接OpenAIを叩かず、必ずEdge Functionを経由させ、ヘッダーのAPIキーを注入する構成にしています。
+### 優先度: 中 (Optimizations)
+- `ai_process_queue` を活用した非同期処理の安定化。
+- AIスレッドの共有機能の権限周りのテスト。
 
 ---
 
-> **要約**: 汎用的なチャット部分は「作る」のではなく「探して使う」に切り替え、我々は「AIと人間がどうコラボレーションするか」という体験作り（AI Thread機能）に全リソースを注ぐべきです。
+## 4. 技術的詳細 (Technical Details)
 
-## 6. 最新のアップデート (2026-01-09)
-### 実装済み機能
-1. **カスタムフレンドニックネーム (Custom Friend Nicknames)**
-   - 友達に自分だけのニックネームを設定可能。
-   - 実装箇所: `friendships` テーブル拡張, `FriendsList.tsx`, `ChatRoom.tsx`, `room_summaries` (View)。
-2. **モバイル版Chat UX改善**
-   - モバイル(幅<768px)でのEnterキー送信を無効化し、改行可能に修正。
+### Edge Functions
+全てのAI関連Functionは現在 `--no-verify-jwt` でデプロイされています。
+- `ai_send_message`
+- `ai_process_queue`
+- `ai_duplicate_thread`
+- `key_set`
 
-### 現在のブロッカーと解決策
-- **Supabaseローカル環境のエラー**: Docker Desktopの不調により `npx supabase start` が失敗する場合がある。
-  - **解決策**: Docker Desktopを再起動し、`npx supabase start` -> `npx supabase db push` を実行する。
+認証はFunction内で `supabase.auth.getUser(token)` を使って手動で行っています。これは、Supabase GatewayとFunction間の認証ヘッダー受け渡し問題を回避するための一時的な措置ですが、現状安定しています。
 
+### Database Schema
+- `ai_threads`, `ai_messages`, `ai_runs` が主要テーブル。
+- `user_llm_keys` は複合主キー `(user_id, provider)` に移行済み。

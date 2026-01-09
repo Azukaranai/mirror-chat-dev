@@ -19,6 +19,8 @@ Deno.serve(async (req: Request) => {
         return new Response('ok', { headers: corsHeaders });
     }
 
+    console.log('ai_send_message called');
+
     try {
         const supabase = createClient(
             Deno.env.get('SUPABASE_URL') ?? '',
@@ -26,21 +28,25 @@ Deno.serve(async (req: Request) => {
         );
 
         // Get user from auth header
-        const authHeader = req.headers.get('Authorization');
+        const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
         if (!authHeader) {
+            console.error('Missing Authorization header');
             throw new Error('Missing Authorization header');
         }
 
-        const { data: { user }, error: authError } = await supabase.auth.getUser(
-            authHeader.replace('Bearer ', '')
-        );
+        console.log('Auth header found, validating user...');
+        const token = authHeader.replace('Bearer ', '');
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
         if (authError || !user) {
-            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            console.error('Auth error:', authError?.message);
+            return new Response(JSON.stringify({ error: 'Unauthorized', detail: authError?.message }), {
                 status: 401,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
+
+        console.log('User authenticated:', user.id);
 
         const { threadId, content, kind }: RequestBody = await req.json();
 
@@ -56,6 +62,33 @@ Deno.serve(async (req: Request) => {
                 status: 404,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
+        }
+
+        // Check if already running
+        const { data: existingRun } = await supabase
+            .from('ai_runs')
+            .select('id, created_at')
+            .eq('thread_id', threadId)
+            .eq('status', 'running')
+            .maybeSingle();
+
+        if (existingRun) {
+            // If the run is older than 2 minutes, consider it stuck and mark as failed
+            const runTime = new Date(existingRun.created_at).getTime();
+            const now = Date.now();
+            if (now - runTime > 2 * 60 * 1000) {
+                console.log('Found stuck run, marking as failed:', existingRun.id);
+                await supabase
+                    .from('ai_runs')
+                    .update({ status: 'failed', error: 'Timeout/Stuck detected by new request' })
+                    .eq('id', existingRun.id);
+            } else {
+                console.log('Thread is currently running:', existingRun.id);
+                return new Response(JSON.stringify({ error: 'Already running' }), {
+                    status: 409,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+            }
         }
 
         if (thread.owner_user_id !== user.id) {
@@ -172,25 +205,37 @@ async function processAIResponse(
     try {
         // Determine provider
         const provider = model.startsWith('gemini') ? 'google' : 'openai';
+        console.log('Processing AI response. Provider:', provider, 'Model:', model);
+
         const encryptionSecret = Deno.env.get('ENCRYPTION_SECRET') || undefined;
+        if (!encryptionSecret) {
+            console.error('ENCRYPTION_SECRET not set!');
+        }
 
         // Retrieve API Key
-        // Priority: 1. DB (User's key) 2. Env Var (System key - fallback)
-        const { data: keyData } = await supabase
+        console.log('Fetching API key for user:', ownerUserId, 'provider:', provider);
+        const { data: keyData, error: keyError } = await supabase
             .from('user_llm_keys')
             .select('encrypted_key')
             .eq('user_id', ownerUserId)
             .eq('provider', provider)
             .maybeSingle();
 
+        if (keyError) {
+            console.error('Error fetching key:', keyError);
+        }
+
         if (!keyData?.encrypted_key) {
+            console.error('No key found in database');
             throw new Error(`No API Key found for ${provider}`);
         }
 
+        console.log('Decrypting API key...');
         const apiKey = await decryptApiKey(keyData.encrypted_key, encryptionSecret);
+        console.log('API key decrypted, length:', apiKey?.length || 0);
 
         // Get history
-        const { data: history } = await supabase
+        const { data: rawHistory } = await supabase
             .from('ai_messages')
             .select('role, content')
             .eq('thread_id', threadId)
@@ -200,17 +245,35 @@ async function processAIResponse(
         let seq = 0;
 
         if (provider === 'google') {
-            // GEMINI IMPLEMENTATION
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}`;
+            // GEMINI IMPLEMENTATION (Steady - Non-Streaming)
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-            // Convert messages to Gemini format
-            // System prompt is handled via systemInstruction
-            const contents = history
-                .filter((m: any) => m.role !== 'system')
-                .map((m: any) => ({
-                    role: m.role === 'user' ? 'user' : 'model',
-                    parts: [{ text: m.content }]
-                }));
+            // Format for Gemini and handle role alternation
+            let contents: any[] = [];
+            if (rawHistory) {
+                rawHistory.forEach((msg: any) => {
+                    if (msg.role === 'system') return;
+
+                    const currentRole = msg.role === 'user' ? 'user' : 'model';
+                    const last = contents[contents.length - 1];
+
+                    if (last && last.role === currentRole) {
+                        // Merge with previous if same role (Gemini requires alternating roles)
+                        last.parts[0].text += "\n\n" + msg.content;
+                    } else {
+                        contents.push({
+                            role: currentRole,
+                            parts: [{ text: msg.content }]
+                        });
+                    }
+                });
+            }
+
+            // If the last message is from model, remove it so we respond to the user's last message
+            if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
+                console.log('Removing trailing model message from history context');
+                contents.pop();
+            }
 
             const body: any = {
                 contents: contents,
@@ -225,6 +288,8 @@ async function processAIResponse(
                 };
             }
 
+            console.log('Calling Gemini API (non-streaming):', model);
+
             const res = await fetch(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -236,156 +301,22 @@ async function processAIResponse(
                 throw new Error(`Gemini API Error: ${errText}`);
             }
 
-            const reader = res.body?.getReader();
-            const decoder = new TextDecoder();
+            const result = await res.json();
+            console.log('Gemini response received:', JSON.stringify(result).substring(0, 200));
 
-            if (reader) {
-                let buffer = '';
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    const chunk = decoder.decode(value, { stream: true });
-                    buffer += chunk;
-
-                    // Gemini sends a JSON array stream like "[{...},\n{...}]"
-                    // We need to robustly parse JSON objects from the buffer
-                    // Simple heuristic: split by newlines or look for matching braces
-                    // Actually, Gemini stream is often clean JSON objects separated by comma in an array structure
-                    // But raw stream might be: "[\n" ... "{\n" ... "}\n," ... "]"
-                    // A simple regex approach to find full JSON objects might work for this specific stream
-
-                    // Quick hack for Gemini stream: It sends valid JSON objects one by one but wrapped in an array structure
-                    // We can try to parse accumulated buffer if it looks like a valid JSON object (ignoring [ ] ,)
-                    // Or simpler: remove leading '[' or ',' and trim
-
-                    // Actually, let's treat it as text processing
-                    // Typical chunk: ",\n{\n \"candidates\": [...] \n}"
-
-                    // Let's accumulate and try to find complete objects
-                    // This is tricky without a proper stream parser.
-                    // For MVP, since we use `streamGenerateContent`, we receive chunks continuously.
-                    // Let's sanitize buffer to extract JSON objects.
-
-                    // Simplification: Replace newlines and parse? No.
-                    // Let's iterate over buffer and match `{...}` blocks at top level
-
-                    // Better approach for now:
-                    // Just decode and if we see "text": "...", extract it.
-                    // Less robust but works for streaming text.
-
-                    const textMatches = buffer.matchAll(/"text":\s*"((?:[^"\\]|\\.)*)"/g);
-                    for (const match of textMatches) {
-                        // This regex is simplistic, Gemini JSON is nested in candidates -> content -> parts
-                        // But "text" field should be unique enough? 
-                        // Actually "text" appears in parts.
-                        // We need to be careful not to re-read same part from buffer.
-                        // Buffer management is needed.
-                    }
-
-                    // Standard approach:
-                    // 1. Remove [ ] at start/end
-                    // 2. Split by ",\n" or similar separator
-                    // 3. Parse each part
-
-                }
-
-                // RE-IMPLEMENTATION WITH BETTER STREAM PARSING FOR GEMINI
-                // Use a simpler recursive read or line-based if possible.
-                // Gemini stream essentially sends line-based JSON if we strip the outer array chars.
-                // Or we can just use the provided fetch response.
-
-                // Let's use a simpler logic:
-                // Since this is MVP, we will assume reasonable chunks.
-                // Actually, Vercel AI SDK does this well. Since we are manual:
-                // Let's rely on the fact that `text` comes in `candidates[0].content.parts[0].text`
-
-                // Let's re-write the loop to be safer.
-                // We will just accumulate the whole text for saving, but for streaming to client:
-                // We need to parse.
-
-                // Let's assume standard behavior:
-                // New logic: 
-                // buffer += chunk
-                // while (buffer has valid JSON object) { extract, parse, remove from buffer }
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+                fullContent = text;
+                // Non-streaming: do not send stream events to avoid duplicate display
+            } else {
+                console.error('Invalid Gemini response:', JSON.stringify(result));
+                throw new Error('No response content from Gemini');
             }
-
-            // Fallback for MVP: 
-            // Since parsing Gemini stream manually is error-prone without a library,
-            // and we want to ensure reliability:
-            // Let's just WAIT for the full response if streaming is hard?
-            // No, user wants stream.
-
-            // Proper Gemini Stream Parser Logic:
-            let streamBuffer = '';
-            const streamReader = res.body ? res.body.getReader() : null;
-            if (streamReader) {
-                while (true) {
-                    const { done, value } = await streamReader.read();
-                    if (done) break;
-                    streamBuffer += decoder.decode(value, { stream: true });
-
-                    // Try to parse complete JSON objects
-                    // Gemini stream items are separated by comma if inside array
-                    // format: [ {Item1}, {Item2} ]
-                    // We can clean the buffer of [ ] , and parse
-
-                    // Rudimentary parser:
-                    let openBrace = streamBuffer.indexOf('{');
-                    while (openBrace !== -1) {
-                        // Try to find matching close brace
-                        let balance = 0;
-                        let closeBrace = -1;
-                        let inString = false;
-
-                        for (let i = openBrace; i < streamBuffer.length; i++) {
-                            const char = streamBuffer[i];
-                            if (char === '"' && streamBuffer[i - 1] !== '\\') inString = !inString;
-                            if (!inString) {
-                                if (char === '{') balance++;
-                                else if (char === '}') {
-                                    balance--;
-                                    if (balance === 0) {
-                                        closeBrace = i;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (closeBrace !== -1) {
-                            const jsonStr = streamBuffer.substring(openBrace, closeBrace + 1);
-                            try {
-                                const parsed = JSON.parse(jsonStr);
-                                const delta = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-                                if (delta) {
-                                    fullContent += delta;
-                                    await supabase.from('ai_stream_events').insert({
-                                        thread_id: threadId,
-                                        run_id: runId,
-                                        seq: seq++,
-                                        delta,
-                                    });
-                                }
-                            } catch (e) {
-                                console.error('Gemini JSON parse error', e);
-                            }
-                            // Advance buffer
-                            streamBuffer = streamBuffer.substring(closeBrace + 1);
-                            openBrace = streamBuffer.indexOf('{');
-                        } else {
-                            // Incomplete object, wait for more chunks
-                            break;
-                        }
-                    }
-                }
-            }
-
         } else {
             // OPENAI IMPLEMENTATION (Existing)
             const messages = [
                 { role: 'system', content: systemPrompt || 'You are a helpful AI assistant.' },
-                ...history.map((m: any) => ({ role: m.role, content: m.content }))
+                ...rawHistory.map((m: any) => ({ role: m.role, content: m.content }))
             ];
 
             const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -446,18 +377,27 @@ async function processAIResponse(
         }
 
         // Save final message
-        await supabase.from('ai_messages').insert({
+        console.log('Saving final assistant message, content length:', fullContent.length);
+        const { error: msgError } = await supabase.from('ai_messages').insert({
             thread_id: threadId,
             role: 'assistant',
             sender_kind: 'assistant',
             content: fullContent,
         });
 
+        if (msgError) {
+            console.error('Failed to save message:', msgError);
+        } else {
+            console.log('Message saved successfully');
+        }
+
         // Complete run
         await supabase.from('ai_runs').update({
             status: 'completed',
             finished_at: new Date().toISOString(),
         }).eq('id', runId);
+
+        console.log('Run completed:', runId);
 
     } catch (error: any) {
         console.error('Processing error:', error);

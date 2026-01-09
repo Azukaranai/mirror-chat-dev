@@ -58,8 +58,12 @@ interface FriendsListProps {
     userId: string;
 }
 
+import { useChatStore } from '@/lib/stores';
+import { EditNicknameDialog } from './EditNicknameDialog';
+
 export function FriendsList({ userId }: FriendsListProps) {
     const supabase = useMemo(() => createClient(), []);
+    const { fetchNotifications } = useChatStore();
     const [friends, setFriends] = useState<Friend[]>([]);
     const [pendingRequests, setPendingRequests] = useState<Friend[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -72,8 +76,6 @@ export function FriendsList({ userId }: FriendsListProps) {
 
     // Nickname editing state
     const [editingFriend, setEditingFriend] = useState<Friend | null>(null);
-    const [editNickname, setEditNickname] = useState('');
-    const [savingNickname, setSavingNickname] = useState(false);
 
     const fetchFriends = useCallback(async () => {
         setLoading(true);
@@ -125,7 +127,13 @@ export function FriendsList({ userId }: FriendsListProps) {
         const pendingById = new Map<string, Friend>();
 
         const addRow = (row: any, profile: any, isRequester: boolean) => {
-            if (!profile) return;
+            // Fallback for missing profile (e.g. deleted user)
+            const displayProfile = profile || {
+                user_id: isRequester ? row.addressee_id : row.requester_id,
+                display_name: '不明なユーザー',
+                handle: 'unknown',
+                avatar_path: null
+            };
 
             // Determine which nickname to use
             // If I am requester, I see requester_nickname (which I set for addressee)
@@ -134,11 +142,11 @@ export function FriendsList({ userId }: FriendsListProps) {
 
             const friend: Friend = {
                 id: row.id,
-                user_id: profile.user_id,
-                display_name: profile.display_name,
+                user_id: displayProfile.user_id,
+                display_name: displayProfile.display_name,
                 nickname: nickname,
-                handle: profile.handle,
-                avatar_path: profile.avatar_path,
+                handle: displayProfile.handle,
+                avatar_path: displayProfile.avatar_path,
                 status: row.status,
                 is_requester: isRequester,
             };
@@ -167,6 +175,10 @@ export function FriendsList({ userId }: FriendsListProps) {
         asAddressee?.forEach((row: any) => {
             addRow(row, profilesById[row.requester_id], false);
         });
+
+        console.log('[DEBUG] Fetched accepted:', acceptedById.size);
+        console.log('[DEBUG] Fetched pending:', pendingById.size);
+        console.log('[DEBUG] Raw requests count (asAddressee):', asAddressee?.length);
 
         setFriends(Array.from(acceptedById.values()));
         setPendingRequests(Array.from(pendingById.values()));
@@ -342,6 +354,7 @@ export function FriendsList({ userId }: FriendsListProps) {
         }
 
         await fetchFriends();
+        fetchNotifications();
     };
 
     // Reject/Cancel friend request
@@ -357,6 +370,7 @@ export function FriendsList({ userId }: FriendsListProps) {
         }
 
         await fetchFriends();
+        fetchNotifications();
     };
 
     // Start DM
@@ -365,28 +379,24 @@ export function FriendsList({ userId }: FriendsListProps) {
             friend_id: friendUserId,
         });
 
-        if (error || !roomId) {
-            setError(error?.message || 'ルームの作成に失敗しました');
+        if (error) {
+            console.error('Failed to create DM room:', error);
+            setError('トークルームの作成に失敗しました');
             return;
         }
 
+        // Go to chat
         window.location.href = `/talk/${roomId}`;
     };
 
-    // Save Nickname
-    const handleSaveNickname = async () => {
+    const handleSaveNickname = async (newName: string) => {
         if (!editingFriend) return;
 
-        setSavingNickname(true);
-        const updateData: any = {};
-
         // If I am requester, I update requester_nickname
-        if (editingFriend.is_requester) {
-            updateData.requester_nickname = editNickname.trim() || null;
-        } else {
-            // If I am addressee, I update addressee_nickname
-            updateData.addressee_nickname = editNickname.trim() || null;
-        }
+        // If I am addressee, I update addressee_nickname
+        const updateData = editingFriend.is_requester
+            ? { requester_nickname: newName }
+            : { addressee_nickname: newName };
 
         const { error } = await (supabase
             .from('friendships') as any)
@@ -399,12 +409,6 @@ export function FriendsList({ userId }: FriendsListProps) {
             await fetchFriends();
             setEditingFriend(null);
         }
-        setSavingNickname(false);
-    };
-
-    const openEditModal = (friend: Friend) => {
-        setEditingFriend(friend);
-        setEditNickname(friend.nickname || friend.display_name);
     };
 
     const incomingRequests = useMemo(
@@ -681,7 +685,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                             {/* Action Buttons */}
                             <div className="flex items-center">
                                 <button
-                                    onClick={() => openEditModal(friend)}
+                                    onClick={() => setEditingFriend(friend)}
                                     className="btn-icon p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                                     title="表示名を変更"
                                 >
@@ -708,50 +712,12 @@ export function FriendsList({ userId }: FriendsListProps) {
             )}
 
             {/* Edit Nickname Modal */}
-            <Dialog
-                open={!!editingFriend}
+            <EditNicknameDialog
+                isOpen={!!editingFriend}
                 onClose={() => setEditingFriend(null)}
-                className="relative z-50"
-            >
-                <div className="fixed inset-0 bg-black/30 md:bg-black/50" aria-hidden="true" />
-
-                <div className="fixed inset-0 flex items-center justify-center p-4">
-                    <Dialog.Panel className="w-full max-w-sm bg-white dark:bg-surface-900 rounded-xl shadow-xl p-6 border border-surface-200 dark:border-surface-700">
-                        <Dialog.Title className="text-lg font-semibold mb-4">表示名を変更</Dialog.Title>
-
-                        <div className="mb-6">
-                            <p className="text-sm text-surface-500 mb-2">
-                                この名前はあなたにのみ表示されます。
-                            </p>
-                            <input
-                                type="text"
-                                value={editNickname}
-                                onChange={(e) => setEditNickname(e.target.value)}
-                                className="input w-full"
-                                placeholder={editingFriend?.display_name}
-                                autoFocus
-                            />
-                        </div>
-
-                        <div className="flex gap-3 justify-end">
-                            <button
-                                onClick={() => setEditingFriend(null)}
-                                className="btn-secondary"
-                                disabled={savingNickname}
-                            >
-                                キャンセル
-                            </button>
-                            <button
-                                onClick={handleSaveNickname}
-                                className="btn-primary"
-                                disabled={savingNickname}
-                            >
-                                {savingNickname ? '保存中...' : '保存'}
-                            </button>
-                        </div>
-                    </Dialog.Panel>
-                </div>
-            </Dialog>
+                currentName={editingFriend?.nickname || editingFriend?.display_name || ''}
+                onSave={handleSaveNickname}
+            />
         </div>
     );
 }

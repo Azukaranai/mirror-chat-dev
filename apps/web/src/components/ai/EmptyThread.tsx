@@ -35,7 +35,7 @@ export function EmptyThread({ userId }: EmptyThreadProps) {
             if (providers.has('openai')) {
                 initialModel = 'gpt-5.2';
             } else if (providers.has('google')) {
-                initialModel = 'gemini-3.0';
+                initialModel = 'gemini-2.5-flash';
             }
         } catch (e) {
             // Ignore error

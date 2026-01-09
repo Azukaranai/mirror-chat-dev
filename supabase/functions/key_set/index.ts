@@ -16,22 +16,44 @@ serve(async (req: Request) => {
     }
 
     try {
-        const supabase = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-        );
+        // Log all headers for debugging
+        const headersList: Record<string, string> = {};
+        req.headers.forEach((value, key) => {
+            headersList[key] = key.toLowerCase() === 'authorization' ? 'Bearer [REDACTED]' : value;
+        });
+        console.log('Request headers:', JSON.stringify(headersList));
 
-        const authHeader = req.headers.get('Authorization')!;
-        const { data: { user }, error: authError } = await supabase.auth.getUser(
-            authHeader.replace('Bearer ', '')
-        );
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-        if (authError || !user) {
-            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        // Create admin client for database operations
+        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+
+        // Get Authorization header
+        const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
+
+        if (!authHeader) {
+            console.error('Missing Authorization header. Available headers:', Object.keys(headersList).join(', '));
+            return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
                 status: 401,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
+
+        const token = authHeader.replace('Bearer ', '');
+        console.log('Token length:', token.length, 'Token prefix:', token.substring(0, 20));
+
+        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+
+        if (authError || !user) {
+            console.error('Auth error:', authError?.message || 'No user found');
+            return new Response(JSON.stringify({ error: 'Unauthorized', detail: authError?.message }), {
+                status: 401,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        console.log('User authenticated:', user.id);
 
         const { apiKey, provider = 'openai' } = await req.json();
 
@@ -51,24 +73,44 @@ serve(async (req: Request) => {
         }
 
         const encryptionSecret = Deno.env.get('ENCRYPTION_SECRET') ?? '';
+        if (!encryptionSecret) {
+            console.error('ENCRYPTION_SECRET is not set');
+            return new Response(JSON.stringify({ error: 'Server configuration error' }), {
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
         const encryptedKey = await encryptApiKey(trimmedKey, encryptionSecret);
         const last4 = trimmedKey.slice(-4);
 
-        // Upsert key
-        const { error: upsertError } = await supabase.from('user_llm_keys').upsert({
-            user_id: user.id,
-            encrypted_key: encryptedKey,
-            key_last4: last4,
-            provider: provider,
-        });
+        console.log('Upserting key for user:', user.id, 'provider:', provider);
+
+        // Upsert key with explicit onConflict for composite primary key
+        const { error: upsertError } = await supabaseAdmin.from('user_llm_keys').upsert(
+            {
+                user_id: user.id,
+                encrypted_key: encryptedKey,
+                key_last4: last4,
+                provider: provider,
+            },
+            {
+                onConflict: 'user_id,provider',
+            }
+        );
+
         if (upsertError) {
+            console.error('Upsert error:', upsertError);
             throw upsertError;
         }
+
+        console.log('Key saved successfully');
 
         return new Response(JSON.stringify({ ok: true, last4 }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     } catch (error) {
+        console.error('key_set error:', error);
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

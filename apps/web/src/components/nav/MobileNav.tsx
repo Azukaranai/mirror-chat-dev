@@ -3,6 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useChatStore } from '@/lib/stores';
+import { useRouter } from 'next/navigation';
+import { NotificationBadge } from '@/components/common/NotificationBadge';
 
 // Icons as inline SVGs
 const UserIcon = ({ className }: { className?: string }) => (
@@ -39,6 +42,8 @@ const navItems = [
 
 export function MobileNav() {
     const pathname = usePathname();
+    const router = useRouter();
+    const { unreadTotalCount, pendingFriendRequests } = useChatStore();
 
     // Hide mobile nav on chat room pages (/talk/[id]) to prevent keyboard interference
     const isChatRoom = pathname.startsWith('/talk/') && pathname.split('/').length > 2;
@@ -57,25 +62,39 @@ export function MobileNav() {
         return pathname === href || pathname.startsWith(href + '/');
     };
 
+    const handleNavigation = (href: string) => {
+        router.push(href);
+    };
+
     return (
-        <nav className="md:hidden border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 safe-bottom">
-            <div className="flex items-center justify-around py-1 px-1">
+        <nav className="md:hidden border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 safe-bottom pb-2">
+            <div className="flex items-center justify-around py-3 px-1">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     const active = isActive(item.href);
 
                     return (
-                        <Link
+                        <div
                             key={item.id}
-                            href={item.href}
+                            onClick={() => handleNavigation(item.href)}
                             className={cn(
-                                'nav-item flex-1 max-w-[80px]',
-                                active && 'active'
+                                'nav-item flex-1 max-w-[80px] relative cursor-pointer flex flex-col items-center justify-center p-1 rounded-lg transition-colors',
+                                active ? 'text-primary-500 bg-primary-50 dark:bg-primary-950/30' : 'text-surface-500 hover:bg-surface-50 dark:hover:bg-surface-800'
                             )}
                         >
-                            <Icon className="w-6 h-6" />
+                            <div className="relative inline-block">
+                                <Icon className="w-6 h-6" />
+                                <div className="absolute -top-2 -right-2 z-50">
+                                    {item.id === 'talk' && (
+                                        <NotificationBadge count={unreadTotalCount} type="messages" />
+                                    )}
+                                    {item.id === 'profile' && (
+                                        <NotificationBadge count={pendingFriendRequests} type="friends" />
+                                    )}
+                                </div>
+                            </div>
                             <span className="sr-only">{item.label}</span>
-                        </Link>
+                        </div>
                     );
                 })}
             </div>

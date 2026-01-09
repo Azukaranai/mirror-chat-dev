@@ -121,6 +121,8 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
         `)
                 .eq('user_id', userId);
 
+            console.log('[DEBUG] RoomList summaries:', summaries);
+
             if (!summaries) {
                 setLoading(false);
                 return;
@@ -129,7 +131,7 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
             const roomList: Room[] = (summaries as any[]).map((summary) => {
                 let lastMessageContent = summary.last_message_content || '';
                 if (summary.last_message_kind === 'shared_ai_thread') {
-                    lastMessageContent = '🤖 AIスレッドを共有しました';
+                    lastMessageContent = 'AIスレッドを共有';
                 } else if (summary.last_message_kind === 'attachment') {
                     lastMessageContent = '📎 添付ファイル';
                 }

@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { useUIStore } from '@/lib/stores';
+import { useUIStore, useChatStore } from '@/lib/stores';
 import { APP_VERSION } from '@/lib/version';
+import { NotificationBadge } from '@/components/common/NotificationBadge';
 
 // Icons as inline SVGs for simplicity
 const UserIcon = ({ className }: { className?: string }) => (
@@ -40,7 +41,9 @@ const navItems = [
 
 export function MainNav() {
     const pathname = usePathname();
+    const router = useRouter();
     const { activeNav, setActiveNav } = useUIStore();
+    const { unreadTotalCount, pendingFriendRequests } = useChatStore();
 
     const isActive = (href: string) => {
         if (href === '/talk') {
@@ -50,6 +53,11 @@ export function MainNav() {
             return pathname.startsWith('/ai');
         }
         return pathname === href || pathname.startsWith(href + '/');
+    };
+
+    const handleNavigation = (href: string, id: string) => {
+        setActiveNav(id as any);
+        router.push(href);
     };
 
     return (
@@ -73,20 +81,27 @@ export function MainNav() {
                     const active = isActive(item.href);
 
                     return (
-                        <Link
+                        <div
                             key={item.id}
-                            href={item.href}
-                            onClick={() => setActiveNav(item.id as typeof activeNav)}
+                            onClick={() => handleNavigation(item.href, item.id)}
                             className={cn(
-                                'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+                                'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer',
                                 active
                                     ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-600 dark:text-primary-400'
                                     : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'
                             )}
                         >
                             <Icon className="w-6 h-6 flex-shrink-0" />
-                            <span className="hidden lg:block font-medium">{item.label}</span>
-                        </Link>
+                            <span className="hidden lg:block font-medium flex-1">{item.label}</span>
+
+                            {/* Badges for Desktop */}
+                            {item.id === 'talk' && (
+                                <NotificationBadge count={unreadTotalCount} type="messages" />
+                            )}
+                            {item.id === 'profile' && (
+                                <NotificationBadge count={pendingFriendRequests} type="friends" />
+                            )}
+                        </div>
                     );
                 })}
             </nav>

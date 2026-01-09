@@ -102,7 +102,7 @@ interface AIThreadViewProps {
 export function AIThreadView({
     threadId,
     userId,
-    isOwner,
+    isOwner: initialIsOwner,
     thread: initialThread,
     permission = null,
     variant = 'page',
@@ -110,11 +110,39 @@ export function AIThreadView({
     const getProvider = (model: string) => model.startsWith('gemini') ? 'google' : 'openai';
     const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
+    // Use store with updated definition
+    const streamingContent = useAIStore(state => state.streamingContent);
+    const setStreamingContent = useAIStore(state => state.setStreamingContent);
+    const runningThreads = useAIStore(state => state.runningThreads);
+    const addRunningThread = useAIStore(state => state.addRunningThread);
+    const removeRunningThread = useAIStore(state => state.removeRunningThread);
+
+    const isRunning = runningThreads.has(threadId);
+    const currentStream = streamingContent.get(threadId) || '';
+
     const [messages, setMessages] = useState<AIMessage[]>([]);
     const [thread, setThread] = useState(initialThread);
+    const [isOwner, setIsOwner] = useState(initialIsOwner);
     const [input, setInput] = useState('');
     const [sending, setSending] = useState(false);
-    const [loading, setLoading] = useState(true);
+    const [messagesLoading, setMessagesLoading] = useState(true);
+    const [keysLoading, setKeysLoading] = useState(true);
+    const [threadLoading, setThreadLoading] = useState(!initialThread);
+    const loading = messagesLoading || keysLoading || threadLoading;
+    const [isReady, setIsReady] = useState(false);
+
+    useEffect(() => {
+        if (!loading) {
+            // Wait for next frame to ensure state updates are reflected
+            const timer = requestAnimationFrame(() => {
+                setIsReady(true);
+            });
+            return () => cancelAnimationFrame(timer);
+        } else {
+            setIsReady(false);
+        }
+    }, [loading]);
+
     const [editingTitle, setEditingTitle] = useState(false);
     const [newTitle, setNewTitle] = useState(thread?.title || '');
     const [actionStatus, setActionStatus] = useState<'archive' | 'delete' | null>(null);
@@ -140,6 +168,8 @@ export function AIThreadView({
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
     const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
     const menuButtonRef = useRef<HTMLButtonElement>(null);
+    const [runningStartTime, setRunningStartTime] = useState<number | null>(null);
+    const [runningTooLong, setRunningTooLong] = useState(false);
 
     // Auto-scroll logic
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -149,24 +179,59 @@ export function AIThreadView({
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const initialScrollDone = useRef(false);
 
-    // Use store with updated definition
-    const streamingContent = useAIStore(state => state.streamingContent);
-    const setStreamingContent = useAIStore(state => state.setStreamingContent);
-    const runningThreads = useAIStore(state => state.runningThreads);
-    const addRunningThread = useAIStore(state => state.addRunningThread);
-    const removeRunningThread = useAIStore(state => state.removeRunningThread);
 
-    const isRunning = runningThreads.has(threadId);
-    const currentStream = streamingContent.get(threadId);
+
+    // Track running time and show warning after 30 seconds
+    useEffect(() => {
+        if (isRunning && !runningStartTime) {
+            setRunningStartTime(Date.now());
+            setRunningTooLong(false);
+        } else if (!isRunning) {
+            setRunningStartTime(null);
+            setRunningTooLong(false);
+        }
+    }, [isRunning, runningStartTime]);
+
+    useEffect(() => {
+        if (!runningStartTime) return;
+
+        const timer = setInterval(() => {
+            const elapsed = Date.now() - runningStartTime;
+            if (elapsed > 30000) { // 30 seconds
+                setRunningTooLong(true);
+            }
+        }, 5000);
+
+        return () => clearInterval(timer);
+    }, [runningStartTime]);
     const isArchived = Boolean(thread?.archived_at);
     const isEmbedded = variant === 'embedded';
     const canIntervene = isOwner || currentPermission === 'INTERVENE';
     const hasApiKey = Boolean(apiKeyLast4);
     const renderedMessages = useMemo(
-        () =>
-            messages.map((msg) => (
-                <div key={msg.id} className={msg.role === 'user' ? 'flex justify-end' : ''}>
-                    {msg.role === 'user' ? (
+        () => {
+            // Deduplicate messages for display
+            const uniqueMessages = messages.filter((msg, index) => {
+                if (index === 0) return true;
+                const prevMsg = messages[index - 1];
+
+                // Remove if same ID
+                if (msg.id === prevMsg.id) return false;
+
+                // Remove if same role and same content (likely a duplicate insert or display bug)
+                if (msg.role === prevMsg.role && msg.content === prevMsg.content) {
+                    return false;
+                }
+                return true;
+            });
+
+            return uniqueMessages.map((msg) => (
+                <div key={msg.id} className={msg.role === 'user' ? 'flex justify-end' : msg.role === 'system' ? 'flex justify-center' : ''}>
+                    {msg.role === 'system' ? (
+                        <div className="text-center py-2 px-4 text-xs text-surface-500 bg-surface-100 dark:bg-surface-800 rounded-full">
+                            {msg.content}
+                        </div>
+                    ) : msg.role === 'user' ? (
                         <div className="message-bubble-sent max-w-[80%]">
                             {msg.sender_kind === 'collaborator' && msg.sender_name && (
                                 <p className="text-xs text-white/70 mb-1">{msg.sender_name}</p>
@@ -179,7 +244,8 @@ export function AIThreadView({
                         </div>
                     )}
                 </div>
-            )),
+            ));
+        },
         [messages]
     );
 
@@ -215,8 +281,12 @@ export function AIThreadView({
         if (now - queueKickRef.current < 1500) return;
         queueKickRef.current = now;
         try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const accessToken = sessionData.session?.access_token;
+
             await supabase.functions.invoke('ai_process_queue', {
                 body: { threadId },
+                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
             });
         } catch (error) {
             console.error('Failed to process queue:', error);
@@ -314,6 +384,7 @@ export function AIThreadView({
                 });
                 setApiKeys(keys);
             }
+            setKeysLoading(false);
         };
 
         loadApiKeys();
@@ -322,23 +393,42 @@ export function AIThreadView({
     }, [supabase, userId]);
 
     useEffect(() => {
-        if (!isOwner) return;
-
         const loadThread = async () => {
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('ai_threads')
                 .select('*')
                 .eq('id', threadId)
                 .single();
+
             if (data) {
                 setThread(data);
+                setIsOwner(data.owner_user_id === userId);
+            } else if (error) {
+                console.error('Error loading thread:', error);
+                // Try fallback to member check if direct access failed (e.g. shared thread)
+                const { data: membership } = await supabase
+                    .from('ai_thread_members')
+                    .select('ai_threads!inner(*)')
+                    .eq('thread_id', threadId)
+                    .eq('user_id', userId)
+                    .single();
+
+                if (membership && membership.ai_threads) {
+                    const joined = Array.isArray(membership.ai_threads)
+                        ? membership.ai_threads[0]
+                        : membership.ai_threads;
+                    setThread(joined as AIThread);
+                }
             }
+            setThreadLoading(false);
         };
 
         if (threadId && !thread) {
             loadThread();
+        } else if (thread) {
+            setThreadLoading(false);
         }
-    }, [threadId, thread, supabase, isOwner]);
+    }, [threadId, thread, supabase, userId]);
 
     // Fetch owner profile
     useEffect(() => {
@@ -357,39 +447,56 @@ export function AIThreadView({
         }
     }, [thread?.owner_user_id, supabase]);
 
+
+
+    // Message fetching error state
+    const [fetchError, setFetchError] = useState<string | null>(null);
+
     // Fetch messages
     useEffect(() => {
         const fetchMessages = async () => {
-            setLoading(true);
+            setMessagesLoading(true);
+            setFetchError(null);
 
-            const { data: msgs } = await supabase
+            console.log('Fetching messages for thread:', threadId);
+            // First try fetching messages without join to ensure access is allowed
+            const { data: msgsData, error } = await supabase
                 .from('ai_messages')
-                .select(`
-          id,
-          role,
-          content,
-          sender_kind,
-          sender_user_id,
-          created_at,
-          profiles:sender_user_id(display_name)
-        `)
+                .select('*')
                 .eq('thread_id', threadId)
                 .order('created_at', { ascending: true });
 
-            if (msgs) {
-                setMessages(
-                    msgs.map((m: any) => {
-                        const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
-                        return {
-                            id: m.id,
-                            role: m.role,
-                            content: m.content,
-                            sender_kind: m.sender_kind,
-                            sender_name: profile?.display_name,
-                            created_at: m.created_at,
-                        };
-                    })
-                );
+            const msgs = msgsData as any[] | null;
+
+            console.log('Fetched messages raw:', msgs?.length || 0, 'error:', error);
+
+            if (error) {
+                console.error('Error fetching messages:', error);
+                setFetchError(`メッセージ取得エラー: ${error.message} (${error.code})`);
+            } else if (msgs) {
+                // Manually fetch profiles for senders
+                const senderIds = Array.from(new Set(msgs.map(m => m.sender_user_id).filter(Boolean)));
+                let profilesMap: Record<string, any> = {};
+
+                if (senderIds.length > 0) {
+                    const { data: profiles } = await supabase
+                        .from('profiles')
+                        .select('user_id, display_name')
+                        .in('user_id', senderIds);
+
+                    if (profiles) {
+                        profiles.forEach((p: any) => {
+                            profilesMap[p.user_id] = p;
+                        });
+                    }
+                }
+
+                const formattedMessages = msgs.map((msg: any) => ({
+                    ...msg,
+                    sender_name: profilesMap[msg.sender_user_id]?.display_name || null
+                }));
+
+                setMessages(formattedMessages);
             }
 
             // Check if there's a running run
@@ -406,53 +513,44 @@ export function AIThreadView({
                 kickQueue();
             }
 
-            setLoading(false);
+            setMessagesLoading(false);
         };
 
-        fetchMessages();
+        if (threadId) {
+            fetchMessages();
+        }
+    }, [threadId, supabase, kickQueue, addRunningThread]);
 
-        // Subscribe to new messages
+    // Realtime subscription
+    useEffect(() => {
+        if (!threadId) return;
+
+        // Subscribe to messages
         const messagesChannel = supabase
             .channel(`ai_messages:${threadId}`)
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT',
+                    event: '*',
                     schema: 'public',
                     table: 'ai_messages',
                     filter: `thread_id=eq.${threadId}`,
                 },
-                async (payload) => {
-                    const newMsg = payload.new as any;
+                (payload) => {
+                    if (payload.eventType === 'INSERT') {
+                        const newMessage = payload.new as any;
+                        setMessages((prev) => {
+                            // Deduplicate
+                            if (prev.some(m => m.id === newMessage.id)) return prev;
+                            // Remove optimistic
+                            const filtered = prev.filter(m => !m.id.startsWith('temp-'));
+                            return [...filtered, newMessage];
+                        });
 
-                    // Get sender name if user
-                    let senderName: string | undefined;
-                    if (newMsg.sender_user_id) {
-                        const { data: sender } = await supabase
-                            .from('profiles')
-                            .select('display_name')
-                            .eq('user_id', newMsg.sender_user_id)
-                            .single();
-                        senderName = (sender as any)?.display_name;
-                    }
-
-                    setMessages((prev) => [
-                        ...prev,
-                        {
-                            id: newMsg.id,
-                            role: newMsg.role,
-                            content: newMsg.content,
-                            sender_kind: newMsg.sender_kind,
-                            sender_name: senderName,
-                            created_at: newMsg.created_at,
-                        },
-                    ]);
-
-                    // Clear streaming content when assistant message arrives
-                    if (newMsg.role === 'assistant') {
-                        setStreamingContent(threadId, '');
-                        removeRunningThread(threadId);
-                        kickQueue();
+                        // If user message inserted, kick queue
+                        if (newMessage.role === 'user') {
+                            kickQueue();
+                        }
                     }
                 }
             )
@@ -493,6 +591,8 @@ export function AIThreadView({
                         addRunningThread(threadId);
                     } else {
                         removeRunningThread(threadId);
+                        setStreamingContent(threadId, '');
+                        // If run finished/failed, kick queue to process next
                         kickQueue();
                     }
                 }
@@ -504,7 +604,42 @@ export function AIThreadView({
             supabase.removeChannel(streamChannel);
             supabase.removeChannel(runChannel);
         };
-    }, [supabase, threadId, addRunningThread, removeRunningThread, setStreamingContent, kickQueue]);
+    }, [supabase, threadId, addRunningThread, removeRunningThread, setStreamingContent]);
+
+    // Update thread metadata real-time
+    useEffect(() => {
+        if (!threadId) return;
+
+        const channel = supabase
+            .channel(`ai_thread_meta:${threadId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'ai_threads',
+                    filter: `id=eq.${threadId}`,
+                },
+                (payload) => {
+                    const updated = payload.new as any;
+                    setThread((prev: any) => ({
+                        ...prev,
+                        title: updated.title,
+                        model: updated.model,
+                        updated_at: updated.updated_at,
+                        archived_at: updated.archived_at
+                    }));
+                    if (!editingTitle) {
+                        setNewTitle(updated.title);
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [supabase, threadId, editingTitle]);
 
     useEffect(() => {
         const channel = supabase
@@ -601,7 +736,12 @@ export function AIThreadView({
                 },
             ]);
 
+            setStreamingContent(threadId, '');
             addRunningThread(threadId);
+
+            // Get auth token
+            const { data: sessionData } = await supabase.auth.getSession();
+            const accessToken = sessionData.session?.access_token;
 
             // Call Edge Function
             const { data, error } = await supabase.functions.invoke('ai_send_message', {
@@ -610,6 +750,7 @@ export function AIThreadView({
                     content,
                     kind: isOwner ? 'owner' : 'collaborator',
                 },
+                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
             });
 
             if (error) {
@@ -645,8 +786,12 @@ export function AIThreadView({
     };
 
     const handleDuplicate = async () => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+
         const { data, error } = await supabase.functions.invoke('ai_duplicate_thread', {
             body: { threadId },
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         });
 
         if (error || !data?.newThreadId) {
@@ -656,6 +801,26 @@ export function AIThreadView({
 
         router.push(`/ai/${data.newThreadId}`);
         router.refresh();
+    };
+
+    const handleLeaveThread = async () => {
+        if (!confirm('このスレッドを非表示にしますか？\n（共有メンバーから外れます）')) return;
+
+        try {
+            const { error } = await supabase
+                .from('ai_thread_members')
+                .delete()
+                .eq('thread_id', threadId)
+                .eq('user_id', userId);
+
+            if (error) throw error;
+
+            router.push('/ai');
+            router.refresh();
+        } catch (error) {
+            console.error('Failed to leave thread:', error);
+            alert('操作に失敗しました');
+        }
     };
 
     const handleOpenApiKeyModal = () => {
@@ -676,8 +841,13 @@ export function AIThreadView({
         const provider = (thread?.model || 'gpt-5.2').startsWith('gemini') ? 'google' : 'openai';
 
         try {
+            // Get auth token
+            const { data: sessionData } = await supabase.auth.getSession();
+            const accessToken = sessionData.session?.access_token;
+
             const { data, error } = await supabase.functions.invoke('key_set', {
                 body: { apiKey: apiKeyInput.trim(), provider },
+                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
             });
 
             if (error) {
@@ -961,17 +1131,11 @@ export function AIThreadView({
     };
 
     const MODEL_OPTIONS = [
-        { id: 'gpt-5.2', label: 'OpenAI API' },
-        { id: 'gemini-3.0', label: 'Gemini API' },
+        { id: 'gpt-5.2', label: 'OpenAI (GPT-5.2)' },
+        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     ];
 
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <div className="w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-        );
-    }
+
 
     return (
         <div className="flex flex-col h-full relative">
@@ -1021,7 +1185,7 @@ export function AIThreadView({
                                 <select
                                     value={thread?.model || 'gpt-5.2'}
                                     onChange={(e) => handleUpdateModel(e.target.value)}
-                                    className="appearance-none bg-transparent border-none p-0 pr-3.5 text-xs text-surface-600 dark:text-surface-400 font-medium focus:ring-0 cursor-pointer hover:text-surface-900 dark:hover:text-surface-200 transition-colors"
+                                    className="appearance-none bg-transparent border-none p-0 pr-3.5 text-xs text-surface-900 dark:text-surface-200 font-medium focus:ring-0 cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
                                 >
                                     {MODEL_OPTIONS.map((option) => {
                                         const isRegistered = Boolean(apiKeys[getProvider(option.id)]);
@@ -1045,7 +1209,7 @@ export function AIThreadView({
                                 </div>
                             </div>
                         ) : (
-                            <span className="font-medium text-surface-600 dark:text-surface-400">
+                            <span className="font-medium text-surface-900 dark:text-surface-200">
                                 {MODEL_OPTIONS.find((o) => o.id === thread?.model)?.label ||
                                     (thread?.model?.startsWith('gemini') ? 'Gemini API' : 'OpenAI API')}
                             </span>
@@ -1251,61 +1415,118 @@ export function AIThreadView({
                                         </button>
                                     </>
                                 )}
+                                {!isOwner && (
+                                    <>
+                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+                                        <button
+                                            onClick={() => {
+                                                handleLeaveThread();
+                                                setHeaderMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                                        >
+                                            <svg className="w-4 h-4 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                            </svg>
+                                            <span>非表示にする</span>
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </>
                     )}
                 </div>
             </header>
 
+            {/* Fetch Error Display */}
+            {fetchError && (
+                <div className="p-4 bg-red-50 border-b border-red-200">
+                    <p className="text-sm text-red-600 font-medium">
+                        エラーが発生しました: {fetchError}
+                    </p>
+                    <p className="text-xs text-red-500 mt-1">
+                        ページを再読み込みするか、しばらく経ってからお試しください。
+                    </p>
+                </div>
+            )}
+
             {/* Messages */}
-            <div
-                ref={scrollContainerRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-auto px-4 pt-4 pb-40 space-y-4"
-            >
-                {isArchived && (
-                    <div className="text-center py-2 text-sm text-surface-500">
-                        このスレッドはアーカイブされています。
+            <div className="flex-1 relative min-h-0">
+                {!isReady && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-surface-900 z-10">
+                        <div className="w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
                     </div>
                 )}
-                {currentPermission === null && (
-                    <div className="text-center py-2 text-sm text-error-500">
-                        アクセス権がありません。
-                    </div>
-                )}
-                {!isOwner && currentPermission === 'VIEW' && (
-                    <div className="text-center py-2 text-sm text-surface-500">
-                        閲覧のみの権限です。介入するには権限が必要です。
-                    </div>
-                )}
-                {messages.length === 0 && !currentStream && (
-                    <div className="text-center py-8 text-surface-400">
-                        <p>メッセージがありません</p>
-                        <p className="text-sm mt-1">AIに質問してみましょう</p>
-                    </div>
-                )}
-
-                {renderedMessages}
-
-                {/* Streaming response */}
-                {currentStream && (
-                    <div className="ai-message max-w-[90%]">
-                        <p className="text-sm whitespace-pre-wrap">{currentStream}</p>
-                        <span className="inline-block w-2 h-4 bg-accent-500 animate-pulse ml-1" />
-                    </div>
-                )}
-
-                {/* Loading indicator when running but no stream yet */}
-                {isRunning && !currentStream && messages[messages.length - 1]?.role === 'user' && (
-                    <div className="ai-message max-w-[90%]">
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-accent-500 animate-pulse" />
-                            <span className="text-sm text-surface-500">考え中...</span>
+                <div
+                    ref={scrollContainerRef}
+                    onScroll={handleScroll}
+                    className="h-full overflow-auto px-4 pt-4 pb-24 space-y-4"
+                >
+                    {isArchived && (
+                        <div className="text-center py-2 text-sm text-surface-500">
+                            このスレッドはアーカイブされています。
                         </div>
-                    </div>
-                )}
+                    )}
+                    {currentPermission === null && (
+                        <div className="text-center py-2 text-sm text-error-500">
+                            アクセス権がありません。
+                        </div>
+                    )}
+                    {!isOwner && currentPermission === 'VIEW' && (
+                        <div className="text-center py-2 text-sm text-surface-500">
+                            閲覧のみの権限です。介入するには権限が必要です。
+                        </div>
+                    )}
+                    {isReady && messages.length === 0 && !currentStream && (
+                        <div className="text-center py-8 text-surface-400">
+                            <p>メッセージがありません</p>
+                            <p className="text-sm mt-1">AIに質問してみましょう</p>
+                        </div>
+                    )}
 
-                <div ref={messagesEndRef} />
+                    {renderedMessages}
+
+                    {/* Streaming response */}
+                    {/* Streaming response */}
+                    {isRunning && currentStream && (!messages.length || messages[messages.length - 1].role !== 'assistant') && (
+                        <div className="ai-message max-w-[90%]">
+                            <p className="text-sm whitespace-pre-wrap">{currentStream}</p>
+                            <span className="inline-block w-2 h-4 bg-accent-500 animate-pulse ml-1" />
+                        </div>
+                    )}
+
+                    {/* Loading indicator when running but no stream yet */}
+                    {isRunning && !currentStream && messages[messages.length - 1]?.role === 'user' && (
+                        <div className="ai-message max-w-[90%]">
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-accent-500 animate-pulse" />
+                                    <span className="text-sm text-surface-500">
+                                        {runningTooLong ? '応答に時間がかかっています...' : '考え中...'}
+                                    </span>
+                                </div>
+                                {runningTooLong && (
+                                    <div className="flex items-center gap-2 text-xs text-surface-400">
+                                        <span>処理がスタックしている可能性があります</span>
+                                        <button
+                                            onClick={() => {
+                                                removeRunningThread(threadId);
+                                                setStreamingContent(threadId, '');
+                                                // Remove the optimistic message
+                                                setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
+                                            }}
+                                            className="text-error-500 hover:text-error-600 underline"
+                                        >
+                                            キャンセル
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <div ref={messagesEndRef} />
+                </div>
             </div>
 
             {/* Input */}
@@ -1327,7 +1548,7 @@ export function AIThreadView({
 
                 <div className="flex items-end gap-2">
                     <div className="flex-1 relative">
-                        {isOwner && !hasApiKey && !isArchived && (
+                        {isReady && isOwner && !hasApiKey && !isArchived && (
                             <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[19px] bg-surface-50/60 dark:bg-surface-900/60 backdrop-blur-sm">
                                 <button
                                     onClick={() => setApiKeyModalOpen(true)}
@@ -1354,23 +1575,42 @@ export function AIThreadView({
                                                 ? 'AIが応答中...'
                                                 : 'メッセージを入力...'
                             }
-                            disabled={isRunning || isArchived || !canIntervene || (isOwner && !hasApiKey)}
+                            disabled={!isReady || isRunning || isArchived || !canIntervene || (isOwner && !hasApiKey)}
                             rows={1}
                             style={{ minHeight: '38px', height: '38px' }}
                             className="w-full resize-none rounded-[19px] border border-surface-200/50 dark:border-surface-700/50 bg-white dark:bg-surface-800 px-4 py-[9px] text-sm leading-5 max-h-32 shadow-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 placeholder:text-surface-400 transition-colors disabled:opacity-50"
                         />
                     </div>
-                    <button
-                        onClick={handleSend}
-                        disabled={!input.trim() || sending || isRunning || isArchived || !canIntervene || (isOwner && !hasApiKey)}
-                        className={cn(
-                            "w-[38px] h-[38px] flex items-center justify-center rounded-full flex-shrink-0 transition-all shadow-lg mb-[1px]",
-                            "bg-primary-500 hover:bg-primary-600 text-white",
-                            "disabled:bg-primary-300 dark:disabled:bg-primary-800 disabled:text-white/80 disabled:cursor-not-allowed"
-                        )}
-                    >
-                        <PaperAirplaneIcon className="w-4 h-4" />
-                    </button>
+                    {isRunning ? (
+                        <button
+                            onClick={() => {
+                                removeRunningThread(threadId);
+                                setStreamingContent(threadId, '');
+                                setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')));
+                            }}
+                            className={cn(
+                                "w-[38px] h-[38px] flex items-center justify-center rounded-full flex-shrink-0 transition-all shadow-lg mb-[1px]",
+                                "bg-error-500 hover:bg-error-600 text-white"
+                            )}
+                            title="キャンセル"
+                        >
+                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="5" y="5" width="14" height="14" rx="2" />
+                            </svg>
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handleSend}
+                            disabled={!input.trim() || sending || isArchived || !canIntervene || (isOwner && !hasApiKey)}
+                            className={cn(
+                                "w-[38px] h-[38px] flex items-center justify-center rounded-full flex-shrink-0 transition-all shadow-lg mb-[1px]",
+                                "bg-primary-500 hover:bg-primary-600 text-white",
+                                "disabled:bg-primary-300 dark:disabled:bg-primary-800 disabled:text-white/80 disabled:cursor-not-allowed"
+                            )}
+                        >
+                            <PaperAirplaneIcon className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             </div>
 

@@ -125,7 +125,7 @@ export function AIThreadPanel({ threadId, variant = 'embedded' }: AIThreadPanelP
 
     if (loading) {
         return (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 h-full flex items-center justify-center">
                 <div className="w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
             </div>
         );
@@ -153,7 +153,7 @@ export function AIThreadPanel({ threadId, variant = 'embedded' }: AIThreadPanelP
 
     if (error || !userId || !thread) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
+            <div className="flex-1 h-full flex flex-col items-center justify-center p-4 text-center">
                 <p className="text-surface-500 mb-4">{error || 'スレッドにアクセスする権限がないか、存在しません'}</p>
                 <div className="flex gap-2">
                     <button

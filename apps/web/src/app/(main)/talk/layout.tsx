@@ -1,11 +1,12 @@
-import { createClient } from '@/lib/supabase/server';
+'use client';
+
+import { useAuth } from '@/components/auth/AuthProvider';
 import { TalkLayout } from '@/components/chat/TalkLayout';
 
-export default async function TalkRootLayout({ children }: { children: React.ReactNode }) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+export default function TalkRootLayout({ children }: { children: React.ReactNode }) {
+    const { userId } = useAuth();
 
-    if (!user) return null;
+    if (!userId) return null;
 
-    return <TalkLayout userId={user.id}>{children}</TalkLayout>;
+    return <TalkLayout userId={userId}>{children}</TalkLayout>;
 }

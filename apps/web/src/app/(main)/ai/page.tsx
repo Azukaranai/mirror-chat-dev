@@ -1,26 +1,27 @@
-import { createClient } from '@/lib/supabase/server';
+'use client';
+
+import { useAuth } from '@/components/auth/AuthProvider';
 import { ThreadList } from '@/components/ai/ThreadList';
 import { EmptyThread } from '@/components/ai/EmptyThread';
 
-export default async function AIPage() {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+export default function AIPage() {
+    const { userId } = useAuth();
 
-    if (!user) return null;
+    if (!userId) return null;
 
     return (
-        <div className="flex h-full">
-            {/* Thread List */}
-            <div className="w-full md:w-80 lg:w-96 border-r border-surface-200 dark:border-surface-800 flex flex-col">
+        <div className="h-full w-full">
+            {/* Mobile: Show Thread List (takes full height) */}
+            <div className="md:hidden flex flex-col h-full w-full">
                 <div className="p-4 border-b border-surface-200 dark:border-surface-800">
                     <h1 className="text-xl font-bold">AIスレッド</h1>
                 </div>
-                <ThreadList userId={user.id} />
+                <ThreadList userId={userId} />
             </div>
 
-            {/* Empty state for desktop */}
-            <div className="hidden md:flex flex-1 items-center justify-center bg-surface-50 dark:bg-surface-950">
-                <EmptyThread userId={user.id} />
+            {/* Desktop: Show Empty State (Layout handles sidebar) */}
+            <div className="hidden md:flex flex-col h-full items-center justify-center bg-surface-50 dark:bg-surface-950">
+                <EmptyThread userId={userId} />
             </div>
         </div>
     );

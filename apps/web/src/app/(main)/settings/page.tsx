@@ -32,8 +32,8 @@ export default function SettingsPage() {
     ];
 
     const providerOptions = [
-        { value: 'openai', label: 'OpenAI (GPT-4)' },
-        { value: 'google', label: 'Google (Gemini Pro)' },
+        { value: 'openai', label: 'OpenAI (GPT-5.2)' },
+        { value: 'google', label: 'Google (Gemini 2.5 Flash)' },
     ];
 
     useEffect(() => {
@@ -75,18 +75,40 @@ export default function SettingsPage() {
         setMessage(null);
 
         try {
+            // Get the current session token
+            const { data: sessionData } = await supabase.auth.getSession();
+            const accessToken = sessionData.session?.access_token;
+
+            if (!accessToken) {
+                setMessage({ type: 'error', text: 'ログインセッションが無効です。再ログインしてください。' });
+                return;
+            }
+
+            console.log('Session user:', sessionData.session?.user?.id);
+            console.log('Access token length:', accessToken.length);
+
             const { data, error } = await supabase.functions.invoke('key_set', {
                 body: { apiKey: apiKey.trim(), provider },
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                },
             });
 
             if (error) {
-                setMessage({ type: 'error', text: 'APIキーの保存に失敗しました' });
+                console.error('Edge Function error:', error);
+                // Try to get more details from the error
+                const errorDetail = error.message || JSON.stringify(error);
+                setMessage({ type: 'error', text: `保存に失敗しました: ${errorDetail}` });
+            } else if (data?.error) {
+                // Handle error returned in the response body
+                setMessage({ type: 'error', text: `保存に失敗しました: ${data.error}` });
             } else {
                 setSavedKeys(prev => ({ ...prev, [provider]: data.last4 }));
                 setApiKey('');
                 setMessage({ type: 'success', text: `${providerOptions.find(p => p.value === provider)?.label} のAPIキーを保存しました` });
             }
-        } catch {
+        } catch (e) {
+            console.error('Unexpected error:', e);
             setMessage({ type: 'error', text: 'エラーが発生しました' });
         } finally {
             setSaving(false);

@@ -1,31 +1,16 @@
-import { createClient } from '@/lib/supabase/server';
-import { notFound } from 'next/navigation';
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { ChatSplitLayout } from '@/components/chat/ChatSplitLayout';
 
-interface TalkRoomPageProps {
-    params: Promise<{ roomId: string }>;
-}
+export default function TalkRoomPage() {
+    const params = useParams();
+    const roomId = params?.roomId as string;
+    const { userId } = useAuth();
 
-export default async function TalkRoomPage({ params }: TalkRoomPageProps) {
-    const { roomId } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    // AuthProviderがローディング中はここに来ない（layoutで処理済み）
+    if (!userId) return null;
 
-    if (!user) return null;
-
-    // Verify room membership
-    const { data: membership } = await supabase
-        .from('room_members')
-        .select('room_id')
-        .eq('room_id', roomId)
-        .eq('user_id', user.id)
-        .single();
-
-    if (!membership) {
-        notFound();
-    }
-
-    return (
-        <ChatSplitLayout roomId={roomId} userId={user.id} />
-    );
+    return <ChatSplitLayout roomId={roomId} userId={userId} />;
 }

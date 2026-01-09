@@ -199,6 +199,7 @@ interface SplitState {
     // Actions
     addTab: (threadId: string, title: string) => string; // Returns tabId
     removeTab: (tabId: string) => void;
+    updateTab: (tabId: string, updates: Partial<SplitTab>) => void;
     setActiveTab: (tabId: string) => void;
     setSplitRatio: (ratio: number) => void;
 }
@@ -240,6 +241,12 @@ export const useSplitStore = create<SplitState>()(
                 });
             },
 
+            updateTab: (tabId, updates) => {
+                set((state) => ({
+                    tabs: state.tabs.map((t) => (t.tabId === tabId ? { ...t, ...updates } : t)),
+                }));
+            },
+
             setActiveTab: (activeTabId) => set({ activeTabId }),
 
             setSplitRatio: (splitRatio) => set({ splitRatio }),
@@ -275,11 +282,19 @@ interface ChatState {
     setTypingUsers: (roomId: string, users: TypingIndicator[]) => void;
     addTypingUser: (roomId: string, user: TypingIndicator) => void;
     removeTypingUser: (roomId: string, userId: string) => void;
+    // Notifications
+    unreadTotalCount: number;
+    pendingFriendRequests: number;
+    setUnreadTotalCount: (count: number) => void;
+    setPendingFriendRequests: (count: number) => void;
+    fetchNotifications: () => Promise<void>;
+    markAllMessagesAsRead: () => Promise<void>;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
     currentRoomId: null,
     setCurrentRoomId: (currentRoomId) => set({ currentRoomId }),
+
 
     newMessageSignal: null,
     emitNewMessage: (roomId, messageId) =>
@@ -307,6 +322,63 @@ export const useChatStore = create<ChatState>((set) => ({
             newMap.set(roomId, current.filter((u) => u.userId !== userId));
             return { typingUsers: newMap };
         }),
+
+    // Notifications
+    unreadTotalCount: 0,
+    pendingFriendRequests: 0,
+    setUnreadTotalCount: (count) => set({ unreadTotalCount: count }),
+    setPendingFriendRequests: (count) => set({ pendingFriendRequests: count }),
+    fetchNotifications: async () => {
+        try {
+            // Import dynamically to avoid circular dependencies or SSR issues
+            const { getSupabaseClient } = await import('@/lib/supabase/client');
+            const supabase = getSupabaseClient();
+
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            // Fetch unread messages count
+            // This assumes room_summaries view has unread_count and is accessible
+            const { data: rooms } = await supabase
+                .from('room_summaries')
+                .select('unread_count')
+                .eq('user_id', user.id);
+
+            console.log('[DEBUG] Fetched rooms for notification:', rooms);
+            const totalUnread = rooms?.reduce((acc, room: any) => acc + (room.unread_count || 0), 0) || 0;
+            console.log('[DEBUG] Total unread:', totalUnread);
+            set({ unreadTotalCount: totalUnread });
+
+            // Fetch pending friend requests count
+            const { count: pendingRequests } = await supabase
+                .from('friendships')
+                .select('*', { count: 'exact', head: true })
+                .eq('addressee_id', user.id)
+                .eq('status', 'pending');
+
+            set({ pendingFriendRequests: pendingRequests || 0 });
+        } catch (error) {
+            console.error('Failed to fetch notifications:', error);
+        }
+    },
+
+    markAllMessagesAsRead: async () => {
+        const { getSupabaseClient } = await import('@/lib/supabase/client');
+        const supabase = getSupabaseClient();
+
+        try {
+            const { error } = await supabase.rpc('mark_all_messages_as_read');
+            if (error) throw error;
+
+            // Optimistic update
+            set({ unreadTotalCount: 0 });
+
+            // Re-fetch to confirm (optional, but good for consistency)
+            get().fetchNotifications();
+        } catch (error) {
+            console.error('Failed to mark all messages as read:', error);
+        }
+    },
 }));
 
 // ============================================

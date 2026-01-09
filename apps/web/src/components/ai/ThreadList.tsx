@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { formatRelativeTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+
+// ... (icons)
 
 const PlusIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -35,6 +37,9 @@ interface ThreadListProps {
 export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
     const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
+    const params = useParams();
+    const currentThreadId = activeThreadId || (params?.threadId as string);
+
     const [threads, setThreads] = useState<Thread[]>([]);
     const [sharedThreads, setSharedThreads] = useState<Thread[]>([]);
     const [loading, setLoading] = useState(true);
@@ -43,58 +48,94 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
     const [createError, setCreateError] = useState<string | null>(null);
 
     // Fetch threads
-    useEffect(() => {
-        const fetchThreads = async () => {
-            setLoading(true);
+    const fetchThreads = useCallback(async () => { // useCallbackに変更
+        // setLoading(true); // Subscriptionからの呼び出しでちらつかないようにローディングは初回のみ
 
-            // Get owned threads
-            const { data: owned } = await supabase
-                .from('ai_threads')
-                .select('id, title, model, updated_at')
-                .eq('owner_user_id', userId)
-                .is('archived_at', null)
-                .order('updated_at', { ascending: false });
+        // Get owned threads
+        const { data: owned } = await supabase
+            .from('ai_threads')
+            .select('id, title, model, updated_at')
+            .eq('owner_user_id', userId)
+            .is('archived_at', null)
+            .order('updated_at', { ascending: false });
 
-            if (owned) {
-                setThreads((owned as any[]).map((t) => ({
-                    id: t.id,
-                    title: t.title,
-                    model: t.model,
-                    updated_at: t.updated_at,
-                    is_shared: false
-                })));
-            }
+        if (owned) {
+            setThreads((owned as any[]).map((t) => ({
+                id: t.id,
+                title: t.title,
+                model: t.model,
+                updated_at: t.updated_at,
+                is_shared: false
+            })));
+        }
 
-            // Get shared threads
-            const { data: shared } = await supabase
-                .from('ai_thread_members')
-                .select(`
-          thread_id,
-          ai_threads!inner(id, title, model, updated_at, archived_at)
-        `)
-                .eq('user_id', userId);
+        // Get shared threads
+        const { data: shared } = await supabase
+            .from('ai_thread_members')
+            .select(`
+      thread_id,
+      ai_threads!inner(id, title, model, updated_at, archived_at)
+    `)
+            .eq('user_id', userId);
 
-            if (shared) {
-                const sharedList = (shared as any[])
-                    .filter((s: any) => s.ai_threads && s.ai_threads.archived_at === null)
-                    .map((s: any) => {
-                        const thread = Array.isArray(s.ai_threads) ? s.ai_threads[0] : s.ai_threads;
-                        return {
-                            id: thread.id,
-                            title: thread.title,
-                            model: thread.model,
-                            updated_at: thread.updated_at,
-                            is_shared: true,
-                        };
-                    });
-                setSharedThreads(sharedList);
-            }
+        if (shared) {
+            const sharedList = (shared as any[])
+                .filter((s: any) => s.ai_threads && s.ai_threads.archived_at === null)
+                .map((s: any) => {
+                    const thread = Array.isArray(s.ai_threads) ? s.ai_threads[0] : s.ai_threads;
+                    return {
+                        id: thread.id,
+                        title: thread.title,
+                        model: thread.model,
+                        updated_at: thread.updated_at,
+                        is_shared: true,
+                    };
+                });
+            setSharedThreads(sharedList);
+        }
 
-            setLoading(false);
-        };
-
-        fetchThreads();
+        setLoading(false);
     }, [supabase, userId]);
+
+    // Initial fetch
+    useEffect(() => {
+        setLoading(true);
+        fetchThreads();
+    }, [fetchThreads]);
+
+    // Realtime subscription
+    useEffect(() => {
+        const channel = supabase
+            .channel('ai_thread_list_updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'ai_threads',
+                },
+                () => {
+                    fetchThreads();
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'ai_thread_members',
+                    filter: `user_id=eq.${userId}`,
+                },
+                () => {
+                    fetchThreads();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [supabase, fetchThreads, userId]);
 
     // Create new thread
     const handleNewThread = async () => {
@@ -114,7 +155,7 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
             if (providers.has('openai')) {
                 initialModel = 'gpt-5.2';
             } else if (providers.has('google')) {
-                initialModel = 'gemini-3.0';
+                initialModel = 'gemini-2.5-flash';
             }
         } catch (e) {
             // Ignore error, use default
