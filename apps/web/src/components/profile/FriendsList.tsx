@@ -433,7 +433,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                     placeholder="@ユーザーIDで検索"
-                    className="input flex-1 text-sm"
+                    className="flex-1 text-sm py-2 px-4 rounded-full bg-surface-100 dark:bg-surface-800 border-none outline-none focus:ring-2 focus:ring-primary-500/20 placeholder:text-surface-400"
                 />
                 <button
                     onClick={handleSearch}
