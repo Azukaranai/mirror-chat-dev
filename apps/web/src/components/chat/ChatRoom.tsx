@@ -1544,30 +1544,53 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                         )}
                                                         {hasAttachments && (
                                                             <div className="mt-2 space-y-2">
-                                                                {(msg.attachments || []).map((attachment) => (
-                                                                    <div
-                                                                        key={attachment.id}
-                                                                        className="flex items-center gap-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white/70 dark:bg-surface-900/40 px-2 py-1"
-                                                                    >
-                                                                        <span className="text-sm">
-                                                                            {attachment.mime.startsWith('image/') ? '🖼️' : '📎'}
-                                                                        </span>
-                                                                        <div className="min-w-0 flex-1">
-                                                                            <p className="text-sm truncate">
-                                                                                {getAttachmentName(attachment.object_path)}
-                                                                            </p>
-                                                                            <p className="text-xs text-surface-500">
-                                                                                {formatFileSize(attachment.size)}
-                                                                            </p>
-                                                                        </div>
-                                                                        <button
-                                                                            onClick={() => handleDownloadAttachment(attachment)}
-                                                                            className="btn-ghost text-xs px-2 py-1"
+                                                                {(msg.attachments || []).map((attachment) => {
+                                                                    const isImage = attachment.mime.startsWith('image/');
+                                                                    const imageUrl = getStorageUrl('chat-attachments', attachment.object_path);
+
+                                                                    if (isImage) {
+                                                                        return (
+                                                                            <div key={attachment.id} className="relative">
+                                                                                <a
+                                                                                    href={imageUrl}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className="block"
+                                                                                >
+                                                                                    <img
+                                                                                        src={imageUrl}
+                                                                                        alt={getAttachmentName(attachment.object_path)}
+                                                                                        className="max-w-full max-h-64 rounded-lg object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                                                                                        loading="lazy"
+                                                                                    />
+                                                                                </a>
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    return (
+                                                                        <div
+                                                                            key={attachment.id}
+                                                                            className="flex items-center gap-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white/70 dark:bg-surface-900/40 px-2 py-1"
                                                                         >
-                                                                            ダウンロード
-                                                                        </button>
-                                                                    </div>
-                                                                ))}
+                                                                            <span className="text-sm">📎</span>
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <p className="text-sm truncate">
+                                                                                    {getAttachmentName(attachment.object_path)}
+                                                                                </p>
+                                                                                <p className="text-xs text-surface-500">
+                                                                                    {formatFileSize(attachment.size)}
+                                                                                </p>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => handleDownloadAttachment(attachment)}
+                                                                                className="btn-ghost text-xs px-2 py-1"
+                                                                            >
+                                                                                ダウンロード
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                })}
                                                             </div>
                                                         )}
                                                     </>
