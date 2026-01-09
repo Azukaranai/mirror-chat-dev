@@ -40,6 +40,7 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
         room_id: string;
         room_name: string;
         sender_name: string;
+        sender_avatar_path: string | null;
         created_at: string;
     }>>([]);
     const [isSearchingMessages, setIsSearchingMessages] = useState(false);
@@ -245,20 +246,24 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
 
                 const [roomsData, profilesData] = await Promise.all([
                     supabase.from('room_summaries').select('room_id, room_name').in('room_id', uniqueRoomIds).eq('user_id', userId),
-                    supabase.from('profiles').select('user_id, display_name').in('user_id', uniqueSenderIds)
+                    supabase.from('profiles').select('user_id, display_name, avatar_path').in('user_id', uniqueSenderIds)
                 ]);
 
                 const roomMap = new Map((roomsData.data || []).map((r: any) => [r.room_id, r.room_name]));
-                const profileMap = new Map((profilesData.data || []).map((p: any) => [p.user_id, p.display_name]));
+                const profileMap = new Map((profilesData.data || []).map((p: any) => [p.user_id, { name: p.display_name, avatar: p.avatar_path }]));
 
-                const results = messages.map((m: any) => ({
-                    id: m.id,
-                    content: m.content,
-                    room_id: m.room_id,
-                    room_name: roomMap.get(m.room_id) || 'Unknown',
-                    sender_name: profileMap.get(m.sender_user_id) || 'Unknown',
-                    created_at: m.created_at,
-                }));
+                const results = messages.map((m: any) => {
+                    const profile = (profileMap.get(m.sender_user_id) as { name: string; avatar: string | null } | undefined) || { name: 'Unknown', avatar: null };
+                    return {
+                        id: m.id,
+                        content: m.content,
+                        room_id: m.room_id,
+                        room_name: roomMap.get(m.room_id) || 'Unknown',
+                        sender_name: profile.name || 'Unknown',
+                        sender_avatar_path: profile.avatar || null,
+                        created_at: m.created_at,
+                    };
+                });
 
                 setMessageSearchResults(results);
             } catch (e) {
@@ -307,16 +312,31 @@ export function RoomList({ userId, activeRoomId }: RoomListProps) {
                                 <Link
                                     key={result.id}
                                     href={`/talk/${result.room_id}?highlight=${result.id}`}
-                                    className="flex flex-col gap-1 p-3 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+                                    className="flex items-start gap-3 p-3 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs text-primary-600 dark:text-primary-400 font-medium">{result.room_name}</span>
-                                        <span className="text-xs text-surface-400">•</span>
-                                        <span className="text-xs text-surface-500">{result.sender_name}</span>
+                                    <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center flex-shrink-0">
+                                        {result.sender_avatar_path ? (
+                                            <Image
+                                                src={getStorageUrl('avatars', result.sender_avatar_path)}
+                                                alt={result.sender_name}
+                                                width={40}
+                                                height={40}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <span className="text-white font-bold text-sm">{getInitials(result.sender_name)}</span>
+                                        )}
                                     </div>
-                                    <p className="text-sm text-surface-700 dark:text-surface-300 line-clamp-2">
-                                        {result.content?.length > 100 ? result.content.substring(0, 100) + '...' : result.content}
-                                    </p>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-medium text-surface-900 dark:text-surface-100">{result.sender_name}</span>
+                                            <span className="text-xs text-surface-400">•</span>
+                                            <span className="text-xs text-primary-600 dark:text-primary-400">{result.room_name}</span>
+                                        </div>
+                                        <p className="text-sm text-surface-600 dark:text-surface-400 line-clamp-2 mt-0.5">
+                                            {result.content?.length > 100 ? result.content.substring(0, 100) + '...' : result.content}
+                                        </p>
+                                    </div>
                                 </Link>
                             ))
                         ) : !isSearchingMessages ? (
