@@ -8,16 +8,17 @@ const ChatIcon = ({ className }: { className?: string }) => (
 
 export function EmptyChat() {
     return (
-        <div className="text-center p-8">
+        <div className="text-center p-8 flex flex-col items-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-100 dark:bg-surface-800 flex items-center justify-center">
                 <ChatIcon className="w-8 h-8 text-surface-400" />
             </div>
             <h3 className="text-lg font-medium mb-2">トークを選択</h3>
-            <p className="text-surface-500 dark:text-surface-400 text-sm">
+            <p className="text-surface-500 dark:text-surface-400 text-sm mb-4">
                 左のリストからトークを選択するか、
                 <br />
                 新しいトークを始めましょう
             </p>
+            <div className="h-10" />
         </div>
     );
 }

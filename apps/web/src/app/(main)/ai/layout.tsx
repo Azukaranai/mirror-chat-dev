@@ -13,8 +13,8 @@ export default function AILayout({
     return (
         <div className="flex h-full">
             {/* Desktop Sidebar Navigation - Hidden on mobile */}
-            <div className="hidden md:flex w-80 lg:w-96 border-r border-surface-200 dark:border-surface-800 flex-col bg-surface-50 dark:bg-surface-900">
-                <div className="p-4 border-b border-surface-200 dark:border-surface-800">
+            <div className="hidden md:flex w-80 lg:w-96 border-r border-surface-200 dark:border-surface-800 flex-col">
+                <div className="flex items-center justify-between px-4 h-14 border-b border-surface-200 dark:border-surface-800">
                     <h1 className="text-xl font-bold">AIスレッド</h1>
                 </div>
                 {userId && <ThreadList userId={userId} />}

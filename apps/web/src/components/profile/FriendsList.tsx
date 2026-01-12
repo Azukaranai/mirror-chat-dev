@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { getStorageUrl, getInitials } from '@/lib/utils';
-import { Dialog } from '@headlessui/react';
+ 
 
 const UserPlusIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -33,6 +33,12 @@ const ChatBubbleIcon = ({ className }: { className?: string }) => (
 const PencilIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+    </svg>
+);
+
+const MagnifyingGlassIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
     </svg>
 );
 
@@ -431,23 +437,29 @@ export function FriendsList({ userId }: FriendsListProps) {
 
     return (
         <div className="space-y-4">
-            {/* Search / Add Friend */}
-            <div className="flex gap-2">
-                <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="@ユーザーIDで検索"
-                    className="flex-1 text-sm py-2 px-4 rounded-full bg-surface-100 dark:bg-surface-800 border-none outline-none focus:ring-2 focus:ring-primary-500/20 placeholder:text-surface-400"
-                />
-                <button
-                    onClick={handleSearch}
-                    disabled={searching || !searchQuery.trim()}
-                    className="btn-primary"
-                >
-                    {searching ? '...' : <UserPlusIcon className="w-5 h-5" />}
-                </button>
+            {/* Friends header */}
+            <div className="space-y-3">
+                <h2 className="text-lg font-semibold">友達</h2>
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <MagnifyingGlassIcon className="w-4 h-4 text-surface-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            placeholder="@ユーザーIDで検索"
+                            className="w-full text-sm py-2.5 pl-9 pr-4 rounded-2xl bg-surface-100 dark:bg-surface-800 border border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-surface-900 focus:ring-2 focus:ring-primary-500/20 placeholder:text-surface-400 outline-none transition-all"
+                        />
+                    </div>
+                    <button
+                        onClick={handleSearch}
+                        disabled={searching || !searchQuery.trim()}
+                        className="px-4 rounded-2xl bg-primary-500 text-white text-sm font-medium shadow-sm hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {searching ? '...' : '追加'}
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -556,7 +568,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                                             className="w-full h-full object-cover"
                                         />
                                     ) : (
-                                        <span className="text-white text-sm font-bold">{getInitials(friend.display_name)}</span>
+                                        <span className="text-white text-sm font-bold">{getInitials(friend.nickname || friend.display_name)}</span>
                                     )}
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -619,7 +631,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
-                                    <span className="text-white text-sm font-bold">{getInitials(friend.display_name)}</span>
+                                    <span className="text-white text-sm font-bold">{getInitials(friend.nickname || friend.display_name)}</span>
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -665,7 +677,7 @@ export function FriendsList({ userId }: FriendsListProps) {
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
-                                    <span className="text-white text-sm font-bold">{getInitials(friend.display_name)}</span>
+                                    <span className="text-white text-sm font-bold">{getInitials(friend.nickname || friend.display_name)}</span>
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">

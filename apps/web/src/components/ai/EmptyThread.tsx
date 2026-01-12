@@ -60,9 +60,9 @@ export function EmptyThread({ userId }: EmptyThreadProps) {
     };
 
     return (
-        <div className="text-center p-8">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-accent-100 to-primary-100 dark:from-accent-900/30 dark:to-primary-900/30 flex items-center justify-center">
-                <SparklesIcon className="w-8 h-8 text-accent-500" />
+        <div className="text-center p-8 flex flex-col items-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-100 dark:bg-surface-800 flex items-center justify-center">
+                <SparklesIcon className="w-8 h-8 text-surface-400" />
             </div>
             <h3 className="text-lg font-medium mb-2">AIスレッドを選択</h3>
             <p className="text-surface-500 dark:text-surface-400 text-sm mb-4">
@@ -70,7 +70,7 @@ export function EmptyThread({ userId }: EmptyThreadProps) {
                 <br />
                 新しいAIスレッドを作成しましょう
             </p>
-            <button onClick={handleCreate} disabled={creating} className="btn-primary">
+            <button onClick={handleCreate} disabled={creating} className="btn-primary h-10">
                 {creating ? (
                     <span className="flex items-center gap-2">
                         <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

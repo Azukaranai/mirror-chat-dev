@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import '@/styles/globals.css';
 import { UIInitializer } from '@/components/ui/UIInitializer';
-import { VersionDisplay } from '@/components/common/VersionDisplay'; // Import VersionDisplay
 
 const inter = Inter({
     subsets: ['latin'],
@@ -72,7 +71,6 @@ export default function RootLayout({
             </head>
             <body className="font-sans antialiased">
                 <UIInitializer />
-                <VersionDisplay />
                 {children}
             </body>
         </html>

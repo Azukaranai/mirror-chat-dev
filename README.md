@@ -102,6 +102,12 @@ mirror-chat-dev/
 ### Phase 2-8: 開発中
 - 詳細は `docs/IMPLEMENTATION_PLAN.md` を参照
 
+## 📚 ドキュメント
+
+- [データベース定義 (DATABASE.md)](docs/DATABASE.md)
+- [タスク一覧 (user-tasks.md)](.agent/tasks/user-tasks.md)
+
+
 ## ライセンス
 
 Private - 身内用

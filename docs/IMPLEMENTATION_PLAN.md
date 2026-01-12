@@ -1,5 +1,10 @@
 # Mirror Chat - 実装計画書（再設計版）
 
+## ⚠️ 重要設定: 開発環境の接続先について
+**ローカル開発時も、Docker（ローカルSupabase）ではなく、リモートのSupabaseプロジェクト（本番/開発環境）に直接接続します。**
+- `npx supabase start` は使用しません。
+- `.env.local` にはリモートSupabaseのURLとANON KEYを設定してください。
+
 ## 目的と前提
 - 目的: 要件定義で指定された機能を全て維持しつつ、データ取得・UI・リアルタイムの設計を安定運用向けに再設計する。
 - インフラ: 現行の Supabase + Cloudflare Pages を継続利用。
@@ -120,6 +125,46 @@
 
 ---
 
+## 運用マニュアル（手動操作）
+
+### 1. 開発サーバーの起動（ローカルで確認）
+```bash
+# アプリのディレクトリへ移動
+cd apps/web
+
+# 開発サーバー起動 (localhost:3000)
+npm run dev
+```
+
+### 2. Cloudflare Pages へのデプロイ（手動）
+コードの変更を本番環境（Web）へ反映させる手順です。
+```bash
+# プロジェクトルートで実行
+cd apps/web
+
+# ビルドしてデプロイ
+npm run pages:build && npx wrangler pages deploy .vercel/output/static --project-name mirror-chat
+```
+
+### 3. Edge Functions のデプロイ
+Supabase Edge Functions（AI機能など）を変更した場合の手順です。
+```bash
+# 特定の関数をデプロイする場合（例：ai_send_message）
+npx supabase functions deploy ai_send_message
+
+# 環境変数を設定する場合
+npx supabase secrets set --env-file ./supabase/.env.local
+```
+
+### 4. データベース定義の更新
+マイグレーションファイルを作成した場合の手順です。
+```bash
+# リモートDBへ反映
+npx supabase db push
+```
+
+---
+
 ## Telegram-Clone 参照による改善ポイント（全体設計）
 以下は Telegram-Clone の構成を参照し、Mirror Chat に合わせて再設計する改善点。
 
@@ -141,7 +186,3 @@
 - [ ] メッセージ取得をページング化（最新N件 + 過去取得）
 - [x] モバイル版でチャットで改行できない (Fixed)
 - [x] モバイル: キーボード表示時のスクロール調整とタブバー非表示 (Fixed)
-
-
-以下、ユーザが手動で入力しているので気づいたら整えて、UI関連についてはgeminiであれば実装して。バックエンドについてはopusであれば確認の上で実装して。以上の指示は消さないで。
-・チャット内の検索機能の実装（開いてるチャット内のみ検索するのと、アプリにあるログ全部検索するのどっちも実装して　前者は開いてるチャットの右上の三点リーダの横に虫眼鏡アイコンを　後者はトークを検索のところから）

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useUIStore } from '@/lib/stores';
 import type { FontScale, Theme } from '@/types';
+import { VersionDisplay } from '@/components/common/VersionDisplay';
 
 export default function SettingsPage() {
     const router = useRouter();
@@ -75,27 +76,23 @@ export default function SettingsPage() {
         setMessage(null);
 
         try {
-            // Get the current session token
             const { data: sessionData } = await supabase.auth.getSession();
-            const accessToken = sessionData.session?.access_token;
-
-            if (!accessToken) {
-                setMessage({ type: 'error', text: 'ログインセッションが無効です。再ログインしてください。' });
-                return;
-            }
-
-            console.log('Session user:', sessionData.session?.user?.id);
-            console.log('Access token length:', accessToken.length);
+            const accessToken = sessionData.session?.access_token
+                ?? (await supabase.auth.refreshSession()).data.session?.access_token;
 
             const { data, error } = await supabase.functions.invoke('key_set', {
                 body: { apiKey: apiKey.trim(), provider },
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
+                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
             });
 
             if (error) {
                 console.error('Edge Function error:', error);
+                const status = (error as any)?.context?.status ?? (error as any)?.status;
+                const messageText = typeof (error as any)?.message === 'string' ? (error as any).message : '';
+                if (status === 401 || messageText.toLowerCase().includes('invalid jwt')) {
+                    setMessage({ type: 'error', text: 'セッションが無効です。ログアウト→再ログインしてください。' });
+                    return;
+                }
                 // Try to get more details from the error
                 const errorDetail = error.message || JSON.stringify(error);
                 setMessage({ type: 'error', text: `保存に失敗しました: ${errorDetail}` });
@@ -168,8 +165,10 @@ export default function SettingsPage() {
 
     return (
         <div className="flex-1 overflow-auto">
+            <div className="flex items-center px-4 h-14 border-b border-surface-200 dark:border-surface-800">
+                <h1 className="text-xl font-bold">設定</h1>
+            </div>
             <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-                <h1 className="text-2xl font-bold">設定</h1>
 
                 {/* Appearance */}
                 <section className="card p-4 md:p-6 space-y-4">
@@ -312,6 +311,10 @@ export default function SettingsPage() {
                         ログアウト
                     </button>
                 </section>
+
+                <div className="text-center">
+                    <VersionDisplay className="text-xs text-surface-400 dark:text-surface-600" />
+                </div>
             </div>
         </div>
     );

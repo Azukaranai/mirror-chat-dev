@@ -1,14 +1,23 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { CHAT_CONTEXT_PREFIX } from '@/lib/utils';
 import { createSharedAIThreadCard, cn, getStorageUrl, getInitials } from '@/lib/utils';
-import { useAIStore } from '@/lib/stores';
+import { useAIStore, useSplitStore } from '@/lib/stores';
 import type { AIThread } from '@/types/database';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // Icons
+const XMarkIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+);
+
 const ArrowLeftIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
@@ -69,6 +78,57 @@ const UsersIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const THREAD_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const decodeThreadId = (pathname: string) => {
+    const match = pathname.match(/^\/ai\/([^/]+)/);
+    if (!match) return null;
+    try {
+        return decodeURIComponent(match[1]);
+    } catch {
+        return match[1];
+    }
+};
+
+const shouldBlockAiThreadLink = (href?: string) => {
+    if (!href) return false;
+    try {
+        const base = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+        const url = new URL(href, base);
+        if (url.pathname.startsWith('/ai/')) {
+            const candidate = decodeThreadId(url.pathname);
+            if (candidate && !THREAD_ID_REGEX.test(candidate)) {
+                return true;
+            }
+        }
+    } catch {
+        return false;
+    }
+    return false;
+};
+
+const MarkdownLink = ({ href, children }: { href?: string; children: ReactNode }) => {
+    if (!href) return <>{children}</>;
+    const block = shouldBlockAiThreadLink(href);
+
+    if (block) {
+        return <span className="text-surface-500">{children}</span>;
+    }
+
+    return (
+        <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-primary-500 underline decoration-primary-500/60 hover:decoration-primary-500"
+        >
+            {children}
+        </a>
+    );
+};
+
+const markdownComponents = { a: MarkdownLink };
+
 const KeyIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3.75 3.75 0 01-3.478 5.196l-1.272 1.272v1.062h-1.5v1.5H8.25v1.5H6.75v-3.183l3.03-3.03A3.75 3.75 0 1115.75 5.25z" />
@@ -87,6 +147,7 @@ interface AIMessage {
     content: string;
     sender_kind: 'owner' | 'collaborator' | 'assistant' | 'system';
     sender_name?: string;
+    sender_user_id?: string;
     created_at: string;
 }
 
@@ -156,20 +217,29 @@ export function AIThreadView({
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
     const [membersOpen, setMembersOpen] = useState(false);
     const [members, setMembers] = useState<Array<{ user_id: string; display_name: string; handle: string; avatar_path: string | null; permission: 'VIEW' | 'INTERVENE' }>>([]);
+    const memberIds = useMemo(() => members.map((member) => member.user_id), [members]);
     const [memberSearch, setMemberSearch] = useState('');
     const [memberSearchResult, setMemberSearchResult] = useState<{ user_id: string; display_name: string; handle: string; avatar_path: string | null } | null>(null);
     const [memberPermission, setMemberPermission] = useState<'VIEW' | 'INTERVENE'>('VIEW');
     const [memberError, setMemberError] = useState<string | null>(null);
     const [ownerProfile, setOwnerProfile] = useState<{ display_name: string; handle: string | null; avatar_path: string | null } | null>(null);
+    const [readEnabled, setReadEnabled] = useState<boolean | null>(null);
+    const [sourceRoomId, setSourceRoomId] = useState<string | null>(null);
+    const [readRooms, setReadRooms] = useState<Array<{ id: string; name: string; avatar_path: string | null; type: 'dm' | 'group' }>>([]);
+    const [readRoomLoading, setReadRoomLoading] = useState(false);
     const [shareOpen, setShareOpen] = useState(false);
     const [shareRooms, setShareRooms] = useState<Array<{ id: string; name: string; avatar_path: string | null; type: 'dm' | 'group' }>>([]);
     const [shareLoading, setShareLoading] = useState(false);
     const [shareError, setShareError] = useState<string | null>(null);
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
     const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+    const menuContainerRef = useRef<HTMLDivElement | null>(null);
+    const menuAnchorRef = useRef<DOMRect | null>(null);
     const menuButtonRef = useRef<HTMLButtonElement>(null);
     const [runningStartTime, setRunningStartTime] = useState<number | null>(null);
     const [runningTooLong, setRunningTooLong] = useState(false);
+    const [currentUserDisplayName, setCurrentUserDisplayName] = useState<string>('ユーザ');
+    const [readToggleLoading, setReadToggleLoading] = useState(false);
 
     // Auto-scroll logic
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -208,6 +278,17 @@ export function AIThreadView({
     const isEmbedded = variant === 'embedded';
     const canIntervene = isOwner || currentPermission === 'INTERVENE';
     const hasApiKey = Boolean(apiKeyLast4);
+    const participantsMap = useMemo(() => {
+        const map: Record<string, { display_name: string; avatar_path: string | null }> = {};
+        if (ownerProfile && thread?.owner_user_id) {
+            map[thread.owner_user_id] = ownerProfile;
+        }
+        members.forEach(m => {
+            map[m.user_id] = m;
+        });
+        return map;
+    }, [members, ownerProfile, thread?.owner_user_id]);
+
     const renderedMessages = useMemo(
         () => {
             // Deduplicate messages for display
@@ -225,28 +306,57 @@ export function AIThreadView({
                 return true;
             });
 
-            return uniqueMessages.map((msg) => (
-                <div key={msg.id} className={msg.role === 'user' ? 'flex justify-end' : msg.role === 'system' ? 'flex justify-center' : ''}>
-                    {msg.role === 'system' ? (
-                        <div className="text-center py-2 px-4 text-xs text-surface-500 bg-surface-100 dark:bg-surface-800 rounded-full">
-                            {msg.content}
-                        </div>
-                    ) : msg.role === 'user' ? (
-                        <div className="message-bubble-sent max-w-[80%]">
-                            {msg.sender_kind === 'collaborator' && msg.sender_name && (
-                                <p className="text-xs text-white/70 mb-1">{msg.sender_name}</p>
-                            )}
-                            <p className="whitespace-pre-wrap">{msg.content}</p>
-                        </div>
-                    ) : (
-                        <div className="ai-message max-w-[90%]">
-                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                        </div>
-                    )}
-                </div>
-            ));
+            return uniqueMessages.map((msg) => {
+                const isMe = msg.role === 'user' && msg.sender_user_id === userId;
+                const isOther = msg.role === 'user' && !isMe;
+                const isSystem = msg.role === 'system';
+
+                let alignment = '';
+                if (isSystem) alignment = 'justify-center';
+                else if (isMe) alignment = 'justify-end';
+                else alignment = 'justify-start';
+
+                return (
+                    <div key={msg.id} className={`flex ${alignment} mb-4 w-full`}>
+                        {isSystem ? (
+                            <div className="text-center py-2 px-4 text-xs text-surface-500 bg-surface-100 dark:bg-surface-800 rounded-full">
+                                {msg.content}
+                            </div>
+                        ) : isMe ? (
+                            <div className="message-bubble-sent max-w-[80%]">
+                                <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                            </div>
+                        ) : isOther ? (
+                            <div className="flex flex-col gap-1 max-w-[80%] items-start">
+                                {msg.sender_user_id && participantsMap[msg.sender_user_id] && (
+                                    <div className="flex items-center gap-2 ml-1">
+                                        <span className="text-xs text-surface-500 font-medium">
+                                            {participantsMap[msg.sender_user_id].display_name}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="p-3 rounded-2xl bg-surface-200 dark:bg-surface-800 text-surface-900 dark:text-surface-100 rounded-tl-none">
+                                    <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                                </div>
+                            </div>
+                        ) : (
+                            // Assistant
+                            <div className="ai-message max-w-[90%]">
+                                <div className="prose dark:prose-invert text-surface-900 dark:text-surface-100 prose-sm max-w-none break-words text-sm [&>p]:mb-2 [&>p:last-child]:mb-0">
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        components={markdownComponents}
+                                    >
+                                        {msg.content}
+                                    </ReactMarkdown>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            });
         },
-        [messages]
+        [messages, participantsMap, userId]
     );
 
     // Scroll to bottom
@@ -276,22 +386,60 @@ export function AIThreadView({
         });
     }, []);
 
+    // Auto scroll when split view opens on mobile (UI-002)
+    const splitTabs = useSplitStore((state) => state.tabs);
+    useEffect(() => {
+        // Simple mobile check
+        const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+        if (splitTabs.length > 0 && isMobile) {
+            setTimeout(() => {
+                scrollToBottom('auto');
+            }, 500);
+        }
+    }, [splitTabs.length, scrollToBottom]);
+
+    // Call edge function without relying on Supabase auth header (avoids Invalid JWT issues)
+    const callFunction = useCallback(
+        async (name: string, body: any) => {
+            const functionsUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+            const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+            if (!functionsUrl) {
+                throw new Error('Supabase URL が設定されていません');
+            }
+            const res = await fetch(`${functionsUrl}/functions/v1/${name}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
+                    ...(userId ? { 'x-user-id': userId } : {}),
+                },
+                body: JSON.stringify(body || {}),
+            });
+            let data: any = null;
+            try {
+                data = await res.json();
+            } catch {
+                // ignore
+            }
+            if (!res.ok) {
+                const message = data?.error || data?.msg || res.statusText;
+                throw new Error(message || 'Edge Function error');
+            }
+            return data;
+        },
+        [userId]
+    );
+
     const kickQueue = useCallback(async () => {
         const now = Date.now();
         if (now - queueKickRef.current < 1500) return;
         queueKickRef.current = now;
         try {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const accessToken = sessionData.session?.access_token;
-
-            await supabase.functions.invoke('ai_process_queue', {
-                body: { threadId },
-                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-            });
+            await callFunction('ai_process_queue', { threadId, userId });
         } catch (error) {
             console.error('Failed to process queue:', error);
         }
-    }, [supabase, threadId]);
+    }, [callFunction, threadId]);
 
     const fetchMembers = useCallback(async () => {
         if (!threadId) return;
@@ -317,13 +465,41 @@ export function AIThreadView({
             }, {} as Record<string, { user_id: string; display_name: string; handle: string; avatar_path: string | null }>);
         }
 
+        const nicknameMap = new Map<string, string>();
+        if (memberIds.length > 0) {
+            const { data: requesterRows } = await supabase
+                .from('friendships')
+                .select('addressee_id, requester_nickname')
+                .eq('requester_id', userId)
+                .in('addressee_id', memberIds);
+
+            const { data: addresseeRows } = await supabase
+                .from('friendships')
+                .select('requester_id, addressee_nickname')
+                .eq('addressee_id', userId)
+                .in('requester_id', memberIds);
+
+            (requesterRows || []).forEach((row: any) => {
+                if (row.requester_nickname) {
+                    nicknameMap.set(row.addressee_id, row.requester_nickname);
+                }
+            });
+            (addresseeRows || []).forEach((row: any) => {
+                if (row.addressee_nickname) {
+                    nicknameMap.set(row.requester_id, row.addressee_nickname);
+                }
+            });
+        }
+
         const mapped = (memberRows || [])
+            .filter((row: any) => row.user_id !== thread?.owner_user_id)
             .map((row: any) => {
                 const profile = profilesById[row.user_id];
                 if (!profile) return null;
+                const customName = nicknameMap.get(row.user_id);
                 return {
                     user_id: row.user_id,
-                    display_name: profile.display_name,
+                    display_name: customName || profile.display_name,
                     handle: profile.handle,
                     avatar_path: profile.avatar_path,
                     permission: row.permission as 'VIEW' | 'INTERVENE',
@@ -339,8 +515,13 @@ export function AIThreadView({
                 .select('display_name, handle, avatar_path')
                 .eq('user_id', thread.owner_user_id)
                 .maybeSingle();
-            // This ownerProfile is for the members list, not the header.
-            // setOwnerProfile((owner as any) || null);
+            if (owner) {
+                const customOwnerName = nicknameMap.get(thread.owner_user_id);
+                setOwnerProfile({
+                    ...(owner as any),
+                    display_name: customOwnerName || (owner as any).display_name,
+                });
+            }
         }
     }, [supabase, threadId, thread?.owner_user_id]);
 
@@ -402,7 +583,9 @@ export function AIThreadView({
 
             if (data) {
                 setThread(data);
-                setIsOwner(data.owner_user_id === userId);
+                setIsOwner((data as any).owner_user_id === userId);
+                setReadEnabled((data as any).read_enabled ?? null);
+                setSourceRoomId((data as any).source_room_id ?? null);
             } else if (error) {
                 console.error('Error loading thread:', error);
                 // Try fallback to member check if direct access failed (e.g. shared thread)
@@ -413,11 +596,13 @@ export function AIThreadView({
                     .eq('user_id', userId)
                     .single();
 
-                if (membership && membership.ai_threads) {
-                    const joined = Array.isArray(membership.ai_threads)
-                        ? membership.ai_threads[0]
-                        : membership.ai_threads;
+                if (membership && (membership as any).ai_threads) {
+                    const joined = Array.isArray((membership as any).ai_threads)
+                        ? (membership as any).ai_threads[0]
+                        : (membership as any).ai_threads;
                     setThread(joined as AIThread);
+                    setReadEnabled((joined as any).read_enabled ?? null);
+                    setSourceRoomId((joined as any).source_room_id ?? null);
                 }
             }
             setThreadLoading(false);
@@ -427,8 +612,19 @@ export function AIThreadView({
             loadThread();
         } else if (thread) {
             setThreadLoading(false);
+            setReadEnabled((thread as any).read_enabled ?? null);
+            setSourceRoomId((thread as any).source_room_id ?? null);
         }
     }, [threadId, thread, supabase, userId]);
+
+    // thread側の最新状態とUIの同期（トグル操作中は触らない）
+    useEffect(() => {
+        if (readToggleLoading) return;
+        if (thread) {
+            setReadEnabled((thread as any).read_enabled ?? null);
+            setSourceRoomId((thread as any).source_room_id ?? null);
+        }
+    }, [thread?.read_enabled, thread?.source_room_id, readToggleLoading]);
 
     // Fetch owner profile
     useEffect(() => {
@@ -446,6 +642,20 @@ export function AIThreadView({
             fetchOwner();
         }
     }, [thread?.owner_user_id, supabase]);
+
+    // Current user display name for logs
+    useEffect(() => {
+        if (!userId) return;
+        const loadMe = async () => {
+            const { data } = await supabase
+                .from('profiles')
+                .select('display_name')
+                .eq('user_id', userId)
+                .maybeSingle();
+            if (data?.display_name) setCurrentUserDisplayName(data.display_name);
+        };
+        loadMe();
+    }, [supabase, userId]);
 
 
 
@@ -491,10 +701,12 @@ export function AIThreadView({
                     }
                 }
 
-                const formattedMessages = msgs.map((msg: any) => ({
-                    ...msg,
-                    sender_name: profilesMap[msg.sender_user_id]?.display_name || null
-                }));
+                const formattedMessages = msgs
+                    .filter((msg: any) => !(typeof msg.content === 'string' && msg.content.trim().startsWith(CHAT_CONTEXT_PREFIX)))
+                    .map((msg: any) => ({
+                        ...msg,
+                        sender_name: profilesMap[msg.sender_user_id]?.display_name || null
+                    }));
 
                 setMessages(formattedMessages);
             }
@@ -544,6 +756,9 @@ export function AIThreadView({
                             if (prev.some(m => m.id === newMessage.id)) return prev;
                             // Remove optimistic
                             const filtered = prev.filter(m => !m.id.startsWith('temp-'));
+                            if (typeof newMessage.content === 'string' && newMessage.content.trim().startsWith(CHAT_CONTEXT_PREFIX)) {
+                                return filtered;
+                            }
                             return [...filtered, newMessage];
                         });
 
@@ -688,10 +903,117 @@ export function AIThreadView({
     }, [messages, currentStream, scrollToBottom]);
 
     useEffect(() => {
-        if (isOwner && membersOpen) {
+        if (threadId) {
             fetchMembers();
         }
-    }, [membersOpen, fetchMembers, isOwner]);
+    }, [threadId, fetchMembers]);
+
+    useEffect(() => {
+        if (!threadId) return;
+
+        const channel = supabase
+            .channel(`ai_thread_profiles:${threadId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'profiles',
+                },
+                (payload) => {
+                    const updatedUserId = (payload.new || payload.old)?.user_id;
+                    if (!updatedUserId) return;
+                    if (updatedUserId === thread?.owner_user_id || memberIds.includes(updatedUserId)) {
+                        fetchMembers();
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [supabase, threadId, thread?.owner_user_id, memberIds, fetchMembers]);
+
+    useEffect(() => {
+        if (!threadId || !userId) return;
+
+        const requesterChannel = supabase
+            .channel(`ai_friendships_requester_${threadId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'friendships',
+                    filter: `requester_id=eq.${userId}`,
+                },
+                (payload: any) => {
+                    const otherId = payload.new?.addressee_id || payload.old?.addressee_id;
+                    if (!otherId) return;
+                    if (memberIds.includes(otherId) || otherId === thread?.owner_user_id) {
+                        fetchMembers();
+                    }
+                }
+            )
+            .subscribe();
+
+        const addresseeChannel = supabase
+            .channel(`ai_friendships_addressee_${threadId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'friendships',
+                    filter: `addressee_id=eq.${userId}`,
+                },
+                (payload: any) => {
+                    const otherId = payload.new?.requester_id || payload.old?.requester_id;
+                    if (!otherId) return;
+                    if (memberIds.includes(otherId) || otherId === thread?.owner_user_id) {
+                        fetchMembers();
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(requesterChannel);
+            supabase.removeChannel(addresseeChannel);
+        };
+    }, [supabase, threadId, userId, memberIds, thread?.owner_user_id, fetchMembers]);
+
+    useEffect(() => {
+        if (!headerMenuOpen || !menuContainerRef.current || !menuAnchorRef.current) return;
+        const frame = requestAnimationFrame(() => {
+            const anchor = menuAnchorRef.current!;
+            const menuRect = menuContainerRef.current!.getBoundingClientRect();
+            const margin = 8;
+
+            let left = anchor.right - menuRect.width;
+            let top = anchor.bottom + 8;
+
+            if (left < margin) left = margin;
+            if (left + menuRect.width > window.innerWidth - margin) {
+                left = window.innerWidth - menuRect.width - margin;
+            }
+
+            if (top + menuRect.height > window.innerHeight - margin) {
+                top = anchor.top - menuRect.height - 8;
+            }
+            if (top < margin) top = margin;
+
+            setMenuStyle({
+                position: 'fixed',
+                top: `${top}px`,
+                left: `${left}px`,
+                zIndex: 9999,
+            });
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [headerMenuOpen]);
 
     // Scroll handling
     const handleScroll = () => {
@@ -732,6 +1054,7 @@ export function AIThreadView({
                     role: 'user',
                     content,
                     sender_kind: isOwner ? 'owner' : 'collaborator',
+                    sender_user_id: userId,
                     created_at: new Date().toISOString(),
                 },
             ]);
@@ -739,27 +1062,61 @@ export function AIThreadView({
             setStreamingContent(threadId, '');
             addRunningThread(threadId);
 
-            // Get auth token
-            const { data: sessionData } = await supabase.auth.getSession();
-            const accessToken = sessionData.session?.access_token;
+            // For v2 encrypted keys, we need to decrypt client-side and pass to server
+            let decryptedApiKey: string | undefined;
+            try {
+                const provider = (thread?.model || 'gpt-5.2').startsWith('gemini') ? 'google' : 'openai';
+
+                // Check if user has a local encryption key (v2 format)
+                const { hasEncryptionKey, decryptApiKeyClientSide } = await import('@/lib/crypto');
+
+                if (hasEncryptionKey(userId)) {
+                    // Get the encrypted key from DB
+                    const { data: keyData } = await supabase
+                        .from('user_llm_keys')
+                        .select('encrypted_key')
+                        .eq('user_id', userId)
+                        .eq('provider', provider)
+                        .maybeSingle();
+
+                    const encryptedKey = (keyData as { encrypted_key?: string } | null)?.encrypted_key;
+                    if (encryptedKey?.startsWith('v2:')) {
+                        // Client-encrypted - decrypt locally
+                        decryptedApiKey = await decryptApiKeyClientSide(encryptedKey, userId) || undefined;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to decrypt API key locally:', e);
+                // Continue without - server may have v1 key that it can decrypt
+            }
 
             // Call Edge Function
-            const { data, error } = await supabase.functions.invoke('ai_send_message', {
-                body: {
-                    threadId,
-                    content,
-                    kind: isOwner ? 'owner' : 'collaborator',
-                },
-                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+            const { data, error } = await callFunction('ai_send_message', {
+                threadId,
+                content,
+                kind: isOwner ? 'owner' : 'collaborator',
+                ...(decryptedApiKey && { apiKey: decryptedApiKey }), // Pass decrypted key if available
+                userId,
             });
 
             if (error) {
                 console.error('Failed to send message:', error);
+                alert(`メッセージ送信エラー: ${error.message || JSON.stringify(error)}`);
+
                 if (error.message?.toLowerCase().includes('api key')) {
                     handleOpenApiKeyModal();
                 }
                 removeRunningThread(threadId);
                 // Remove optimistic message
+                setMessages((prev) => prev.filter((m) => m.id !== tempId));
+                setInput(content);
+                return;
+            }
+
+            if (data?.error) {
+                console.error('Server returned error:', data.error);
+                alert(`サーバーエラー: ${data.error} \n詳細: ${JSON.stringify(data.details)}`);
+                removeRunningThread(threadId);
                 setMessages((prev) => prev.filter((m) => m.id !== tempId));
                 setInput(content);
                 return;
@@ -786,8 +1143,7 @@ export function AIThreadView({
     };
 
     const handleDuplicate = async () => {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData.session?.access_token;
+        const accessToken = await getAccessTokenOrThrow();
 
         const { data, error } = await supabase.functions.invoke('ai_duplicate_thread', {
             body: { threadId },
@@ -839,14 +1195,24 @@ export function AIThreadView({
         setApiKeyError(null);
 
         const provider = (thread?.model || 'gpt-5.2').startsWith('gemini') ? 'google' : 'openai';
+        const rawKey = apiKeyInput.trim();
+        const last4 = rawKey.slice(-4);
 
         try {
-            // Get auth token
-            const { data: sessionData } = await supabase.auth.getSession();
-            const accessToken = sessionData.session?.access_token;
+            // Import crypto utilities dynamically (only available in browser)
+            const { encryptApiKeyClientSide } = await import('@/lib/crypto');
+
+            // Encrypt client-side - server will never see the raw key
+            const encryptedKey = await encryptApiKeyClientSide(rawKey, userId);
+
+            const accessToken = await getAccessTokenOrThrow();
 
             const { data, error } = await supabase.functions.invoke('key_set', {
-                body: { apiKey: apiKeyInput.trim(), provider },
+                body: {
+                    apiKey: encryptedKey,  // Already encrypted
+                    provider,
+                    last4  // Send last4 separately since server can't extract it
+                },
                 headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
             });
 
@@ -857,7 +1223,7 @@ export function AIThreadView({
                 return;
             }
 
-            setApiKeys(prev => ({ ...prev, [provider]: data?.last4 }));
+            setApiKeys(prev => ({ ...prev, [provider]: data?.last4 || last4 }));
             setApiKeyModalOpen(false);
             setApiKeyInput('');
         } catch (e: any) {
@@ -891,6 +1257,7 @@ export function AIThreadView({
     const fetchShareRooms = useCallback(async () => {
         setShareLoading(true);
         setShareError(null);
+        setReadRoomLoading(true);
 
         try {
             const { data: summaries, error } = await supabase
@@ -908,13 +1275,56 @@ export function AIThreadView({
             }));
 
             setShareRooms(roomList);
+            // readRooms はスレッド共有先に限定するので、別で取得
         } catch (e) {
             console.error('Failed to fetch rooms:', e);
             setShareError('ルーム一覧の取得に失敗しました');
         } finally {
             setShareLoading(false);
+            setReadRoomLoading(false);
         }
-    }, [supabase, userId]);
+    }, [supabase, userId, setShareRooms, setShareError]);
+
+    // スレッドが共有されている＆ユーザが参加しているトークのみ取得
+    const fetchReadableRooms = useCallback(async () => {
+        setReadRoomLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('messages')
+                .select('room_id, rooms:rooms(id, group_id, type, name:room_name, avatar_path:room_avatar_path), room_members!inner(user_id)')
+                .eq('kind', 'shared_ai_thread')
+                .eq('room_members.user_id', userId)
+                .eq('content->>threadId', threadId);
+
+            if (error) throw error;
+
+            const filtered = (data || [])
+                .map((row: any) => ({
+                    id: row.room_id,
+                    name: row.rooms?.name || '名称未設定トーク',
+                    avatar_path: row.rooms?.avatar_path || null,
+                    type: row.rooms?.type || 'dm',
+                })) as Array<{ id: string; name: string; avatar_path: string | null; type: 'dm' | 'group' }>;
+
+            // fallback: 共有先が0件の場合は自分が所属するトーク一覧を使う
+            setReadRooms(filtered.length > 0 ? filtered : shareRooms);
+        } catch (e) {
+            console.error('Failed to fetch readable rooms:', e);
+            setReadRooms(shareRooms);
+        } finally {
+            setReadRoomLoading(false);
+        }
+    }, [supabase, userId, threadId, shareRooms]);
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+        fetchShareRooms();
+    }, [supabase, userId, fetchShareRooms]);
+
+    useEffect(() => {
+        if (!supabase || !userId || !threadId) return;
+        fetchReadableRooms();
+    }, [supabase, userId, threadId, fetchReadableRooms]);
 
     const handleShareToRoom = async (roomId: string) => {
         if (!thread) return;
@@ -931,6 +1341,13 @@ export function AIThreadView({
             setShareError('共有に失敗しました');
             return;
         }
+
+        // Set default read target to this room when shared from thread view
+        await supabase
+            .from('ai_threads')
+            .update({ source_room_id: roomId, read_enabled: true })
+            .eq('id', threadId)
+            .is('source_room_id', null);
 
         // Try to add members (best effort)
         try {
@@ -992,6 +1409,55 @@ export function AIThreadView({
         setMemberSearchResult(profile as any);
     };
 
+    const logAIEvent = async (content: string) => {
+        if (!threadId) return;
+        try {
+            await supabase.from('ai_messages').insert({
+                thread_id: threadId,
+                role: 'system',
+                sender_user_id: userId,
+                sender_kind: 'system',
+                content,
+            } as any);
+        } catch (err) {
+            console.error('Failed to write AI thread log:', err);
+        }
+    };
+
+    const fetchCustomDisplayName = async (targetUserId: string) => {
+        if (!targetUserId) return 'Unknown';
+
+        const { data: requesterRow } = await supabase
+            .from('friendships')
+            .select('requester_nickname')
+            .eq('requester_id', userId)
+            .eq('addressee_id', targetUserId)
+            .maybeSingle();
+
+        if (requesterRow?.requester_nickname) {
+            return requesterRow.requester_nickname;
+        }
+
+        const { data: addresseeRow } = await supabase
+            .from('friendships')
+            .select('addressee_nickname')
+            .eq('addressee_id', userId)
+            .eq('requester_id', targetUserId)
+            .maybeSingle();
+
+        if (addresseeRow?.addressee_nickname) {
+            return addresseeRow.addressee_nickname;
+        }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('display_name')
+            .eq('user_id', targetUserId)
+            .maybeSingle();
+
+        return profile?.display_name || 'Unknown';
+    };
+
     const discardPendingQueue = async (targetUserId: string) => {
         await (supabase
             .from('ai_queue_items') as any)
@@ -1025,6 +1491,9 @@ export function AIThreadView({
         setMemberSearchResult(null);
         setMemberPermission('VIEW');
         fetchMembers();
+        const targetName = await fetchCustomDisplayName(memberSearchResult.user_id);
+        const actorName = await fetchCustomDisplayName(userId);
+        await logAIEvent(`${targetName}を${actorName}が追加しました`);
     };
 
     const handleUpdateMemberPermission = async (targetUserId: string, nextPermission: 'VIEW' | 'INTERVENE') => {
@@ -1044,6 +1513,10 @@ export function AIThreadView({
         }
 
         fetchMembers();
+        const actorName = await fetchCustomDisplayName(userId);
+        const targetName = await fetchCustomDisplayName(targetUserId);
+        const label = nextPermission === 'VIEW' ? '閲覧のみ' : '閲覧・操作';
+        await logAIEvent(`${targetName}の権限を${actorName}が${label}に変更しました`);
     };
 
     const handleRemoveMember = async (targetUserId: string) => {
@@ -1060,6 +1533,13 @@ export function AIThreadView({
 
         await discardPendingQueue(targetUserId);
         fetchMembers();
+        const actorName = await fetchCustomDisplayName(userId);
+        const targetName = await fetchCustomDisplayName(targetUserId);
+        if (targetUserId === userId) {
+            await logAIEvent(`メンバーが退出しました: ${targetName}`);
+        } else {
+            await logAIEvent(`${targetName}を${actorName}が削除しました`);
+        }
     };
 
     // Update title
@@ -1130,6 +1610,117 @@ export function AIThreadView({
         alert('共有リンクをコピーしました');
     };
 
+    // Read settings handlers (thread side)
+    const handleUpdateReadTarget = useCallback(
+        async (roomId: string) => {
+            if (!threadId || !roomId) return;
+            // 読込先候補外は無視
+            if (readRooms.length > 0 && !readRooms.some((r) => r.id === roomId)) return;
+            const prevRoomId = sourceRoomId || (thread as any)?.source_room_id || null;
+            try {
+                await supabase
+                    .from('ai_threads')
+                    .update({ source_room_id: roomId, read_enabled: readEnabled ?? true })
+                    .eq('id', threadId);
+                setSourceRoomId(roomId);
+                setThread((prev: any) => prev ? { ...prev, source_room_id: roomId, read_enabled: (readEnabled ?? true) } : prev);
+                if (readEnabled === null) setReadEnabled(true);
+
+                // ONログは読取が有効な場合のみ
+                if (readEnabled ?? true) {
+                    await supabase.from('messages').insert({
+                        room_id: roomId,
+                        sender_user_id: userId,
+                        kind: 'system',
+                        content: `${currentUserDisplayName}がスレッド「${thread?.title || 'AIスレッド'}」の読取をオンにしました`,
+                    } as any);
+                }
+
+                // 以前の読込先があれば、そちらにオフのログを残す
+                if (prevRoomId && prevRoomId !== roomId) {
+                    await supabase.from('messages').insert({
+                        room_id: prevRoomId,
+                        sender_user_id: userId,
+                        kind: 'system',
+                        content: `${currentUserDisplayName}がスレッド「${thread?.title || 'AIスレッド'}」の読取をオフにしました`,
+                    } as any);
+                }
+            } catch (e) {
+                console.error('Failed to update read target', e);
+                // 失敗時リカバリ
+                const { data } = await supabase
+                    .from('ai_threads')
+                    .select('source_room_id, read_enabled')
+                    .eq('id', threadId)
+                    .single();
+                if (data) {
+                    setSourceRoomId((data as any).source_room_id ?? prevRoomId);
+                    setReadEnabled((data as any).read_enabled ?? readEnabled);
+                    setThread((prev: any) => prev ? { ...prev, ...data } : prev);
+                }
+            }
+        },
+        [supabase, threadId, readEnabled, readRooms, userId, currentUserDisplayName, thread?.title, thread, sourceRoomId]
+    );
+
+    const handleToggleReadEnabled = useCallback(
+        async (next: boolean) => {
+            if (!threadId) return;
+            // 読込先の優先候補: 現在選択中 → スレッド既存の source → 読込候補一覧の先頭
+            const targetRoom = sourceRoomId || (thread as any)?.source_room_id || (readRooms.length > 0 ? readRooms[0].id : null);
+            const prevEnabled = readEnabled ?? false;
+            const prevSource = sourceRoomId || (thread as any)?.source_room_id || null;
+            if (!targetRoom && next) {
+                console.warn('読取をONにするには読込先トークが必要です');
+                setReadEnabled(prevEnabled);
+                return; // ON 時は読込先必須
+            }
+            // ボタン表示を即時反映
+            setReadEnabled(next);
+            setReadToggleLoading(true);
+            try {
+                await supabase
+                    .from('ai_threads')
+                    .update({
+                        read_enabled: next,
+                        ...(targetRoom ? { source_room_id: targetRoom } : {}),
+                    })
+                    .eq('id', threadId);
+                if (targetRoom && next) setSourceRoomId(targetRoom);
+                // threadステートも即時更新して揺れを抑える
+                setThread((prev: any) => prev ? { ...prev, read_enabled: next, source_room_id: targetRoom ?? prev.source_room_id } : prev);
+
+                if (targetRoom) {
+                    await supabase.from('messages').insert({
+                        room_id: targetRoom,
+                        sender_user_id: userId,
+                        kind: 'system',
+                        content: `${currentUserDisplayName}がスレッド「${thread?.title || 'AIスレッド'}」の読取を${next ? 'オン' : 'オフ'}にしました`,
+                    } as any);
+                }
+            } catch (e) {
+                console.error('Failed to toggle read enabled', e);
+                // 失敗したら元に戻す
+                setReadEnabled(prevEnabled);
+                setSourceRoomId(prevSource);
+                // 最新のDB状態に合わせて再フェッチ
+                const { data } = await supabase
+                    .from('ai_threads')
+                    .select('read_enabled, source_room_id')
+                    .eq('id', threadId)
+                    .single();
+                if (data) {
+                    setReadEnabled((data as any).read_enabled ?? prevEnabled);
+                    setSourceRoomId((data as any).source_room_id ?? prevSource);
+                    setThread((prev: any) => prev ? { ...prev, ...data } : prev);
+                }
+            } finally {
+                setReadToggleLoading(false);
+            }
+        },
+        [supabase, threadId, sourceRoomId, readRooms, currentUserDisplayName, thread?.title, userId, thread, readEnabled]
+    );
+
     const MODEL_OPTIONS = [
         { id: 'gpt-5.2', label: 'OpenAI (GPT-5.2)' },
         { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -1138,13 +1729,26 @@ export function AIThreadView({
 
 
     return (
-        <div className="flex flex-col h-full relative">
+        <div className="flex flex-col h-full relative overflow-hidden">
             {/* Header */}
-            <header className="flex items-center gap-3 px-4 py-3 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900">
-                {!isEmbedded && (
+            <header className="flex items-center gap-3 px-4 h-14 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 sticky top-0 z-20">
+                {!isEmbedded ? (
                     <Link href="/ai" className="md:hidden btn-icon">
                         <ArrowLeftIcon className="w-5 h-5" />
                     </Link>
+                ) : (
+                    // UI-007: Close split view
+                    <button
+                        onClick={() => {
+                            const tabs = useSplitStore.getState().tabs;
+                            const myTab = tabs.find((t) => t.threadId === threadId);
+                            if (myTab) useSplitStore.getState().removeTab(myTab.tabId);
+                        }}
+                        className="md:hidden btn-icon text-surface-500"
+                        title="閉じる"
+                    >
+                        <XMarkIcon className="w-5 h-5" />
+                    </button>
                 )}
                 <div className="flex-1 min-w-0">
                     {editingTitle ? (
@@ -1179,20 +1783,18 @@ export function AIThreadView({
                         </div>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-surface-500 mt-1.5 leading-none">
+                    <div className="flex items-center gap-2 text-xs text-surface-500 mt-1.5 leading-none min-w-0">
                         {isOwner ? (
-                            <div className="relative flex items-center">
+                            <div className="relative flex items-center min-w-0">
                                 <select
                                     value={thread?.model || 'gpt-5.2'}
                                     onChange={(e) => handleUpdateModel(e.target.value)}
-                                    className="appearance-none bg-transparent border-none p-0 pr-3.5 text-xs text-surface-900 dark:text-surface-200 font-medium focus:ring-0 cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                                    className="appearance-none bg-transparent border-none p-0 pr-4 text-xs font-medium text-surface-900 dark:text-surface-200 focus:ring-0 cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors truncate max-w-[160px] md:max-w-[220px]"
                                 >
                                     {MODEL_OPTIONS.map((option) => {
-                                        const isRegistered = Boolean(apiKeys[getProvider(option.id)]);
                                         return (
                                             <option key={option.id} value={option.id}>
                                                 {option.label}
-                                                {isRegistered ? ' (✅登録済み)' : ''}
                                             </option>
                                         );
                                     })}
@@ -1209,58 +1811,31 @@ export function AIThreadView({
                                 </div>
                             </div>
                         ) : (
-                            <span className="font-medium text-surface-900 dark:text-surface-200">
+                            <span className="truncate max-w-[160px] md:max-w-[220px] font-medium text-surface-900 dark:text-surface-200">
                                 {MODEL_OPTIONS.find((o) => o.id === thread?.model)?.label ||
                                     (thread?.model?.startsWith('gemini') ? 'Gemini API' : 'OpenAI API')}
                             </span>
                         )}
 
-                        <span className={cn(
-                            "text-[10px] px-1.5 py-0.5 rounded-full border",
-                            hasApiKey
-                                ? "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
-                                : !isOwner
-                                    ? "bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800"
-                                    : "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700"
-                        )}>
-                            {hasApiKey
-                                ? '✅ あなたのAPI'
-                                : !isOwner
-                                    ? `👤 ${ownerProfile?.display_name ? ownerProfile.display_name + 'の設定に依存' : 'オーナー設定に依存'}`
-                                    : '⚠️ API未登録'}
+                        <span
+                            className={cn(
+                                "truncate max-w-[140px] md:max-w-[180px] text-[10px] px-1.5 py-0.5 rounded-full border shrink-0",
+                                isOwner && hasApiKey
+                                    ? "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
+                                    : isOwner
+                                        ? "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700"
+                                        : "bg-surface-100 text-emerald-600 border-surface-200 dark:bg-surface-800 dark:text-emerald-400 dark:border-surface-700"
+                            )}
+                        >
+                            {isOwner
+                                ? (hasApiKey ? 'あなたのAPI' : '⚠️ API未登録')
+                                : 'オーナーのAPIで実行'}
                         </span>
 
                         {thread?.created_at && (
-                            <>
-                                <span className="text-surface-300 dark:text-surface-600">•</span>
-                                <span className="whitespace-nowrap font-mono opacity-80">
-                                    {new Date(thread.created_at).toLocaleDateString('ja-JP')}
-                                </span>
-                            </>
-                        )}
-
-                        {ownerProfile && (
-                            <>
-                                <span className="text-surface-300 dark:text-surface-600">•</span>
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    {ownerProfile.avatar_path ? (
-                                        <div className="w-4 h-4 rounded-full overflow-hidden ring-1 ring-surface-200 dark:ring-surface-700 relative">
-                                            <img
-                                                src={getStorageUrl('avatars', ownerProfile.avatar_path)}
-                                                alt={ownerProfile.display_name || ownerProfile.handle || 'Unknown'}
-                                                className="w-full h-full object-cover"
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="w-4 h-4 rounded-full bg-surface-200 dark:bg-surface-700 flex items-center justify-center text-[7px] font-bold text-surface-600 dark:text-surface-300 uppercase ring-1 ring-surface-300/50">
-                                            {getInitials(ownerProfile.display_name || ownerProfile.handle || 'Unknown')}
-                                        </div>
-                                    )}
-                                    <span className="truncate max-w-[100px] hover:text-surface-800 dark:hover:text-surface-200 transition-colors">
-                                        {ownerProfile.display_name || ownerProfile.handle || 'Unknown'}
-                                    </span>
-                                </div>
-                            </>
+                            <span className="whitespace-nowrap font-mono opacity-80 shrink-0">
+                                {new Date(thread.created_at).toLocaleDateString('ja-JP')}
+                            </span>
                         )}
                     </div>
                 </div>
@@ -1270,10 +1845,12 @@ export function AIThreadView({
                         onClick={() => {
                             if (!headerMenuOpen && menuButtonRef.current) {
                                 const rect = menuButtonRef.current.getBoundingClientRect();
+                                const menuWidth = 224;
+                                menuAnchorRef.current = rect;
                                 setMenuStyle({
                                     position: 'fixed',
                                     top: `${rect.bottom + 8}px`,
-                                    right: `${window.innerWidth - rect.right}px`,
+                                    left: `${rect.right - menuWidth}px`,
                                     zIndex: 9999,
                                 });
                                 setHeaderMenuOpen(true);
@@ -1291,7 +1868,8 @@ export function AIThreadView({
                         <>
                             <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
                             <div
-                                className="absolute w-56 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden animate-in fade-in zoom-in-95 duration-100 py-1"
+                                ref={menuContainerRef}
+                                className="absolute w-56 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden py-1"
                                 style={menuStyle}
                             >
                                 <button
@@ -1304,6 +1882,56 @@ export function AIThreadView({
                                     <DuplicateIcon className="w-4 h-4 text-surface-500" />
                                     <span>複製して新規作成</span>
                                 </button>
+
+                                <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
+
+                                {/* Read settings */}
+                                <div className="px-4 py-3 text-sm space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-surface-600 dark:text-surface-300">読取を許可</span>
+                                        <button
+                                            onClick={() => handleToggleReadEnabled(!(readEnabled ?? true))}
+                                            disabled={readToggleLoading || readRoomLoading || (!readEnabled && !sourceRoomId && readRooms.length === 0)}
+                                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${ (readEnabled ?? true) ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-200 text-surface-600 dark:bg-surface-700 dark:text-surface-300'} ${readToggleLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                        >
+                                            {(readEnabled ?? true) ? 'オン' : 'オフ'}
+                                        </button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="text-[12px] text-surface-500">読込先トーク</div>
+                                        <select
+                                            value={sourceRoomId || ''}
+                                            onChange={(e) => handleUpdateReadTarget(e.target.value)}
+                                            disabled={readRoomLoading || (readRooms.length === 0) || readToggleLoading}
+                                            className="w-full rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 px-3 py-2 text-sm"
+                                        >
+                                            {readRooms.length === 0 && <option value="">選択できるトークがありません</option>}
+                                            {readRooms.map((room) => (
+                                                <option key={room.id} value={room.id}>
+                                                    {room.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="text-[12px] text-surface-500 flex flex-wrap gap-2">
+                                            <span className="inline-flex items-center gap-1">
+                                                <span className="text-surface-400">モデル:</span>
+                                                <span className="font-medium">{thread?.model || '未設定'}</span>
+                                            </span>
+                                            {thread?.created_at && (
+                                                <span className="inline-flex items-center gap-1">
+                                                    <span className="text-surface-400">共有日時:</span>
+                                                    <span className="font-mono">{new Date(thread.created_at).toLocaleDateString('ja-JP')}</span>
+                                                </span>
+                                            )}
+                                            {ownerProfile?.display_name && (
+                                                <span className="inline-flex items-center gap-1">
+                                                    <span className="text-surface-400">オーナー:</span>
+                                                    <span className="font-medium">{ownerProfile.display_name}</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
 
@@ -1322,39 +1950,6 @@ export function AIThreadView({
 
                                 {isOwner && (
                                     <>
-                                        <button
-                                            onClick={() => {
-                                                handleShare();
-                                                setHeaderMenuOpen(false);
-                                            }}
-                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
-                                        >
-                                            <ShareIcon className="w-4 h-4 text-surface-500" />
-                                            <span>リンクをコピー</span>
-                                        </button>
-
-                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
-                                        <button
-                                            onClick={() => {
-                                                setMembersOpen(true);
-                                                setHeaderMenuOpen(false);
-                                            }}
-                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
-                                        >
-                                            <UsersIcon className="w-4 h-4 text-surface-500" />
-                                            <span>メンバー管理</span>
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                handleOpenApiKeyModal();
-                                                setHeaderMenuOpen(false);
-                                            }}
-                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
-                                        >
-                                            <KeyIcon className="w-4 h-4 text-surface-500" />
-                                            <span>APIキー設定</span>
-                                        </button>
-                                        <div className="h-px bg-surface-100 dark:bg-surface-700 my-1" />
                                         <button
                                             onClick={() => {
                                                 handleShare();
@@ -1451,7 +2046,7 @@ export function AIThreadView({
             )}
 
             {/* Messages */}
-            <div className="flex-1 relative min-h-0">
+            <div className="flex-1 relative min-h-0 overflow-hidden">
                 {!isReady && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-surface-900 z-10">
                         <div className="w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
@@ -1460,7 +2055,7 @@ export function AIThreadView({
                 <div
                     ref={scrollContainerRef}
                     onScroll={handleScroll}
-                    className="h-full overflow-auto px-4 pt-4 pb-24 space-y-4"
+                    className="h-full overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y px-4 pt-4 pb-24 space-y-4"
                 >
                     {isArchived && (
                         <div className="text-center py-2 text-sm text-surface-500">
@@ -1490,8 +2085,12 @@ export function AIThreadView({
                     {/* Streaming response */}
                     {isRunning && currentStream && (!messages.length || messages[messages.length - 1].role !== 'assistant') && (
                         <div className="ai-message max-w-[90%]">
-                            <p className="text-sm whitespace-pre-wrap">{currentStream}</p>
-                            <span className="inline-block w-2 h-4 bg-accent-500 animate-pulse ml-1" />
+                            <div className="prose dark:prose-invert prose-sm max-w-none break-words text-sm [&>p]:mb-2 [&>p:last-child]:mb-0">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                    {currentStream}
+                                </ReactMarkdown>
+                                <span className="inline-block w-2 h-4 bg-accent-500 animate-pulse ml-1 align-bottom" />
+                            </div>
                         </div>
                     )}
 
@@ -1561,9 +2160,21 @@ export function AIThreadView({
                         )}
                         <textarea
                             ref={inputRef}
+                            data-ai-thread-input="true"
                             value={input}
                             onChange={(e) => handleInputChange(e.target.value)}
                             onKeyDown={handleKeyDown}
+                            onFocus={() => {
+                                // Mobile optimization (UI-004)
+                                const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+                                if (isMobile) {
+                                    setTimeout(() => {
+                                        scrollToBottom('auto');
+                                        // Scroll input area into view
+                                        inputRef.current?.parentElement?.parentElement?.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                                    }, 400);
+                                }
+                            }}
                             placeholder={
                                 isArchived
                                     ? 'アーカイブ済みのため送信できません'
@@ -1617,7 +2228,7 @@ export function AIThreadView({
 
             {
                 apiKeyModalOpen && (
-                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900">
                             {(() => {
                                 const modalProvider = getProvider(thread?.model || 'gpt-5.2');
@@ -1672,7 +2283,7 @@ export function AIThreadView({
 
             {
                 membersOpen && (
-                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                         <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900 max-h-[80vh] overflow-auto">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-lg font-semibold">メンバー管理</h3>
@@ -1683,7 +2294,7 @@ export function AIThreadView({
 
                             {ownerProfile && (
                                 <div className="mb-4 flex items-center gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 bg-surface-50/50 dark:bg-surface-800/50">
-                                    <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700">
+                                    <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700 ${ownerProfile.avatar_path ? 'bg-surface-200 dark:bg-surface-700' : 'bg-gradient-to-br from-primary-400 to-accent-400 text-white'}`}>
                                         {ownerProfile.avatar_path ? (
                                             <img
                                                 src={getStorageUrl('avatars', ownerProfile.avatar_path)}
@@ -1691,7 +2302,7 @@ export function AIThreadView({
                                                 className="w-full h-full object-cover"
                                             />
                                         ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                            <div className="w-full h-full flex items-center justify-center text-sm font-bold">
                                                 {getInitials(ownerProfile.display_name)}
                                             </div>
                                         )}
@@ -1709,7 +2320,7 @@ export function AIThreadView({
                             <div className="space-y-3">
                                 {members.map((member) => (
                                     <div key={member.user_id} className="flex items-center gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors">
-                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700">
+                                        <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700 ${member.avatar_path ? 'bg-surface-200 dark:bg-surface-700' : 'bg-gradient-to-br from-primary-400 to-accent-400 text-white'}`}>
                                             {member.avatar_path ? (
                                                 <img
                                                     src={getStorageUrl('avatars', member.avatar_path)}
@@ -1717,7 +2328,7 @@ export function AIThreadView({
                                                     className="w-full h-full object-cover"
                                                 />
                                             ) : (
-                                                <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                                <div className="w-full h-full flex items-center justify-center text-sm font-bold">
                                                     {getInitials(member.display_name)}
                                                 </div>
                                             )}
@@ -1762,7 +2373,7 @@ export function AIThreadView({
                                 </div>
                                 {memberSearchResult && (
                                     <div className="mt-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700">
+                                        <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative ring-1 ring-surface-200 dark:ring-surface-700 ${memberSearchResult.avatar_path ? 'bg-surface-200 dark:bg-surface-700' : 'bg-gradient-to-br from-primary-400 to-accent-400 text-white'}`}>
                                             {memberSearchResult.avatar_path ? (
                                                 <img
                                                     src={getStorageUrl('avatars', memberSearchResult.avatar_path)}
@@ -1770,7 +2381,7 @@ export function AIThreadView({
                                                     className="w-full h-full object-cover"
                                                 />
                                             ) : (
-                                                <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
+                                                <div className="w-full h-full flex items-center justify-center text-sm font-bold">
                                                     {getInitials(memberSearchResult.display_name)}
                                                 </div>
                                             )}
@@ -1807,7 +2418,7 @@ export function AIThreadView({
 
             {
                 shareOpen && (
-                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                         <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-surface-900 max-h-[80vh] overflow-auto">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-lg font-semibold">トークに共有</h3>
@@ -1827,19 +2438,19 @@ export function AIThreadView({
                                             onClick={() => handleShareToRoom(room.id)}
                                             className="w-full flex items-center gap-3 text-left rounded-lg border border-surface-200 dark:border-surface-700 p-3 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
                                         >
-                                            <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex-shrink-0 relative">
-                                                {room.avatar_path ? (
-                                                    <img
-                                                        src={getStorageUrl('avatars', room.avatar_path)}
-                                                        alt={room.name}
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center text-sm font-bold text-surface-500">
-                                                        {getInitials(room.name)}
-                                                    </div>
-                                                )}
+                                    <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative ${room.avatar_path ? 'bg-surface-200 dark:bg-surface-700' : 'bg-gradient-to-br from-primary-400 to-accent-400 text-white'}`}>
+                                        {room.avatar_path ? (
+                                            <img
+                                                src={getStorageUrl('avatars', room.avatar_path)}
+                                                alt={room.name}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-sm font-bold">
+                                                {getInitials(room.name)}
                                             </div>
+                                        )}
+                                    </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium truncate">{room.name}</p>
                                                 <p className="text-xs text-surface-500">{room.type === 'dm' ? 'DM' : 'グループ'}</p>

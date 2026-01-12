@@ -177,6 +177,9 @@ export function generateId(): string {
     return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+export const CHAT_CONTEXT_PREFIX = '[CHAT_CONTEXT]';
+export const CHAT_CONTEXT_STATUS_PREFIX = '[CHAT_CONTEXT_STATUS]';
+
 /**
  * Parse shared AI thread card from message content
  */

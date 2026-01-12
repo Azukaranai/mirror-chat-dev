@@ -15,10 +15,11 @@ serve(async (req: Request) => {
     }
 
     try {
-        const supabase = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-        );
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+            ?? Deno.env.get('SERVICE_ROLE_KEY')
+            ?? '';
+        const supabase = createClient(supabaseUrl, serviceRoleKey);
 
         const authHeader = req.headers.get('Authorization')!;
         const { data: { user }, error: authError } = await supabase.auth.getUser(

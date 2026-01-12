@@ -24,7 +24,16 @@ serve(async (req: Request) => {
         console.log('Request headers:', JSON.stringify(headersList));
 
         const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+            ?? Deno.env.get('SERVICE_ROLE_KEY')
+            ?? '';
+        if (!serviceRoleKey) {
+            console.error('Missing SUPABASE_SERVICE_ROLE_KEY');
+            return new Response(JSON.stringify({ error: 'Missing SUPABASE_SERVICE_ROLE_KEY' }), {
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
 
         // Create admin client for database operations
         const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
@@ -55,7 +64,8 @@ serve(async (req: Request) => {
 
         console.log('User authenticated:', user.id);
 
-        const { apiKey, provider = 'openai' } = await req.json();
+        const body = await req.json();
+        const { apiKey, provider = 'openai' } = body;
 
         if (!apiKey || typeof apiKey !== 'string') {
             return new Response(JSON.stringify({ error: 'Invalid API key' }), {
@@ -72,19 +82,35 @@ serve(async (req: Request) => {
             });
         }
 
-        const encryptionSecret = Deno.env.get('ENCRYPTION_SECRET') ?? '';
-        if (!encryptionSecret) {
-            console.error('ENCRYPTION_SECRET is not set');
-            return new Response(JSON.stringify({ error: 'Server configuration error' }), {
-                status: 500,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+        // Check if already encrypted with v2 (client-side encryption)
+        // v2: format means client encrypted - we store as-is
+        const isClientEncrypted = trimmedKey.startsWith('v2:');
+
+        let encryptedKey: string;
+        let last4: string;
+
+        if (isClientEncrypted) {
+            // Client-side encrypted - store as-is
+            // Server cannot decrypt this - that's the point!
+            encryptedKey = trimmedKey;
+            // Extract last4 from a separate field sent by client
+            last4 = body.last4 || '****';
+            console.log('Storing client-encrypted key for user:', user.id);
+        } else {
+            // Legacy: server-side encryption
+            const encryptionSecret = Deno.env.get('ENCRYPTION_SECRET') ?? '';
+            if (!encryptionSecret) {
+                console.error('ENCRYPTION_SECRET is not set');
+                return new Response(JSON.stringify({ error: 'Server configuration error' }), {
+                    status: 500,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+            }
+            encryptedKey = await encryptApiKey(trimmedKey, encryptionSecret);
+            last4 = trimmedKey.slice(-4);
         }
 
-        const encryptedKey = await encryptApiKey(trimmedKey, encryptionSecret);
-        const last4 = trimmedKey.slice(-4);
-
-        console.log('Upserting key for user:', user.id, 'provider:', provider);
+        console.log('Upserting key for user:', user.id, 'provider:', provider, 'client_encrypted:', isClientEncrypted);
 
         // Upsert key with explicit onConflict for composite primary key
         const { error: upsertError } = await supabaseAdmin.from('user_llm_keys').upsert(

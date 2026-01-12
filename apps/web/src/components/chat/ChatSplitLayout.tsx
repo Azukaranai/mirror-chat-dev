@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import { ChatRoom } from '@/components/chat/ChatRoom';
 import { AIThreadPanel } from '@/components/ai/AIThreadPanel';
@@ -25,6 +25,9 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const draggingRef = useRef(false);
     const axisRef = useRef<'vertical' | 'horizontal'>('vertical');
+    const [isMobile, setIsMobile] = useState(false);
+    const [threadComposerFocused, setThreadComposerFocused] = useState(false);
+    const [chatComposerFocused, setChatComposerFocused] = useState(false);
 
     const activeTab = useMemo(() => {
         if (activeTabId) {
@@ -66,6 +69,53 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
         };
     }, [setSplitRatio]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const media = window.matchMedia('(max-width: 768px)');
+        const update = () => setIsMobile(media.matches);
+        update();
+        media.addEventListener('change', update);
+        return () => media.removeEventListener('change', update);
+    }, []);
+
+    useEffect(() => {
+        if (!isMobile) {
+            setThreadComposerFocused(false);
+            setChatComposerFocused(false);
+            return;
+        }
+
+        const handleFocusIn = (event: FocusEvent) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.getAttribute('data-ai-thread-input') === 'true') {
+                setThreadComposerFocused(true);
+            }
+            if (target?.getAttribute('data-chat-input') === 'true') {
+                setChatComposerFocused(true);
+            }
+        };
+
+        const handleFocusOut = () => {
+            setTimeout(() => {
+                const active = document.activeElement as HTMLElement | null;
+                if (!active || active.getAttribute('data-ai-thread-input') !== 'true') {
+                    setThreadComposerFocused(false);
+                }
+                if (!active || active.getAttribute('data-chat-input') !== 'true') {
+                    setChatComposerFocused(false);
+                }
+            }, 0);
+        };
+
+        document.addEventListener('focusin', handleFocusIn);
+        document.addEventListener('focusout', handleFocusOut);
+
+        return () => {
+            document.removeEventListener('focusin', handleFocusIn);
+            document.removeEventListener('focusout', handleFocusOut);
+        };
+    }, [isMobile]);
+
     // Realtime update for tab titles
     useEffect(() => {
         const supabase = createClient();
@@ -104,13 +154,16 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
         event.preventDefault();
     };
 
+    const talkFocusActive = chatComposerFocused && isMobile;
+    const threadFocusActive = threadComposerFocused && isMobile;
+
     return (
         <div
             ref={containerRef}
             className={`flex h-full min-h-0 ${activeTab ? 'flex-col md:flex-row' : ''}`}
         >
             <div
-                className="flex-1 min-w-0 min-h-0"
+                className={`flex-1 min-w-0 min-h-0 ${threadFocusActive ? 'hidden md:block' : ''}`}
                 style={activeTab ? { flexBasis: `${splitRatio * 100}%` } : undefined}
             >
                 <ChatRoom roomId={roomId} userId={userId} />
@@ -120,12 +173,12 @@ export function ChatSplitLayout({ roomId, userId }: ChatSplitLayoutProps) {
                 <>
                     <div
                         onPointerDown={handleDividerPointerDown}
-                        className="bg-surface-200 dark:bg-surface-700 md:w-1 md:cursor-col-resize md:mx-0 h-1 w-full cursor-row-resize"
+                        className={`bg-surface-200 dark:bg-surface-700 md:w-1 md:cursor-col-resize md:mx-0 h-1 w-full cursor-row-resize ${threadFocusActive || talkFocusActive ? 'hidden md:block' : ''}`}
                         role="separator"
                         aria-label="分割リサイズ"
                     />
                     <div
-                        className="flex-1 min-w-0 min-h-0 border-t md:border-t-0 md:border-l border-surface-200 dark:border-surface-800"
+                        className={`flex-1 min-w-0 min-h-0 border-t md:border-t-0 md:border-l border-surface-200 dark:border-surface-800 ${talkFocusActive ? 'hidden md:block' : ''}`}
                         style={{ flexBasis: `${(1 - splitRatio) * 100}%` }}
                     >
                         <div className="flex items-center gap-2 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 p-2 overflow-auto">

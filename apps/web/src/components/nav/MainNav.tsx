@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useUIStore, useChatStore } from '@/lib/stores';
-import { APP_VERSION } from '@/lib/version';
 import { NotificationBadge } from '@/components/common/NotificationBadge';
 
 // Icons as inline SVGs for simplicity
@@ -121,11 +120,6 @@ export function MainNav() {
                     <span className="hidden lg:block font-medium">設定</span>
                 </Link>
                 {/* Version - subtle display */}
-                <div className="hidden lg:block px-3 pt-3 pb-1">
-                    <span className="text-xs text-surface-400 dark:text-surface-600">
-                        v{APP_VERSION}
-                    </span>
-                </div>
             </div>
         </div>
     );

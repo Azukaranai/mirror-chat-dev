@@ -66,6 +66,8 @@ export interface RoomMember {
     room_id: string;
     user_id: string;
     last_read_message_id: string | null;
+    last_read_at: string | null;
+    show_read_status: boolean;
     joined_at: string;
 }
 
@@ -236,7 +238,7 @@ export interface Database {
             room_members: {
                 Row: RoomMember;
                 Insert: Omit<RoomMember, 'joined_at'>;
-                Update: Partial<Pick<RoomMember, 'last_read_message_id'>>;
+                Update: Partial<Pick<RoomMember, 'last_read_message_id' | 'last_read_at' | 'show_read_status'>>;
                 Relationships: [];
             };
             messages: {
@@ -317,6 +319,10 @@ export interface Database {
             can_intervene_ai_thread: {
                 Args: { p_thread_id: string; p_user_id: string };
                 Returns: boolean;
+            };
+            create_group_with_owner: {
+                Args: { p_name: string; p_avatar_path?: string | null };
+                Returns: string;
             };
         };
     };

@@ -254,7 +254,7 @@ body {
 
   /* AI message */
   .ai-message {
-    @apply px-4 py-3 rounded-2xl bg-gradient-to-br from-accent-50 to-primary-50 dark:from-accent-950/30 dark:to-primary-950/30 border border-accent-100 dark:border-accent-900/30;
+    @apply px-0 py-0 text-sm leading-relaxed text-surface-900 dark:text-surface-100 break-words max-w-full;
   }
 
   /* Typing indicator */

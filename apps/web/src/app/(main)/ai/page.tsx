@@ -13,7 +13,7 @@ export default function AIPage() {
         <div className="h-full w-full">
             {/* Mobile: Show Thread List (takes full height) */}
             <div className="md:hidden flex flex-col h-full w-full">
-                <div className="p-4 border-b border-surface-200 dark:border-surface-800">
+                <div className="flex items-center justify-between px-4 h-14 border-b border-surface-200 dark:border-surface-800">
                     <h1 className="text-xl font-bold">AIスレッド</h1>
                 </div>
                 <ThreadList userId={userId} />

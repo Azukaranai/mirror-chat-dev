@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useMemo, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+
+// 開発用のデフォルト認証情報（ローカルでのみ使用想定）
+const DEFAULT_DEV_EMAIL = 'dev@example.com';
+const DEFAULT_DEV_PASSWORD = 'password123';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -11,7 +15,10 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const router = useRouter();
+    const searchParams = useSearchParams();
     const supabase = useMemo(() => createClient(), []);
+    const devEmail = process.env.NEXT_PUBLIC_DEV_LOGIN_EMAIL || DEFAULT_DEV_EMAIL;
+    const devPassword = process.env.NEXT_PUBLIC_DEV_LOGIN_PASSWORD || DEFAULT_DEV_PASSWORD;
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -36,6 +43,30 @@ export default function LoginPage() {
             setLoading(false);
         }
     };
+
+    // Secret dev login: /login?dev=1 で env に設定した開発アカウントに自動サインイン
+    useEffect(() => {
+        const isDevLogin = searchParams?.get('dev') === '1';
+        if (!isDevLogin) return;
+        // 二重実行防止
+        if (loading) return;
+        setLoading(true);
+        supabase.auth.signInWithPassword({ email: devEmail, password: devPassword })
+            .then(({ error }) => {
+                if (error) {
+                    setError(error.message);
+                    setLoading(false);
+                    return;
+                }
+                router.push('/talk');
+                router.refresh();
+            })
+            .catch(() => {
+                setError('開発用ログインに失敗しました');
+                setLoading(false);
+            });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
 
     return (
         <div className="card p-8 animate-fade-in">

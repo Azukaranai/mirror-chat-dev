@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useOverlayStore } from '@/lib/stores';
+import { useOverlayStore, useCacheStore } from '@/lib/stores';
 import { AIThreadPanel } from '@/components/ai/AIThreadPanel';
 import { cn, isMobile } from '@/lib/utils';
 import type { OverlayWindow } from '@/types';
@@ -26,6 +26,9 @@ interface OverlayWindowComponentProps {
 
 function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
     const { closeWindow, minimizeWindow, restoreWindow, bringToFront, updatePosition, updateSize } = useOverlayStore();
+    const { threadCache } = useCacheStore();
+    const cached = threadCache.get(window.threadId);
+    const windowTitle = cached?.thread?.title || 'AIスレッド';
     const windowRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [resizingDirection, setResizingDirection] = useState<string | null>(null);
@@ -166,7 +169,7 @@ function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
         return (
             <div
                 className={cn(
-                    'fixed z-[400] cursor-pointer flex items-center gap-2 px-4 py-2 rounded-full shadow-xl transition-all',
+                    'fixed z-[400] cursor-pointer flex items-center gap-2 px-4 py-2 rounded-full shadow-xl transition-colors transition-transform',
                     'bg-surface-900/90 text-white backdrop-blur-md border border-surface-700/50',
                     'hover:bg-surface-800 hover:scale-105 active:scale-95',
                     isDragging && 'cursor-grabbing scale-105'
@@ -184,7 +187,7 @@ function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
                 }}
             >
                 <div className="w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
-                <span className="text-sm font-medium select-none">AIスレッド</span>
+                <span className="text-sm font-medium select-none">{windowTitle}</span>
                 <button
                     onClick={(e) => {
                         e.stopPropagation();

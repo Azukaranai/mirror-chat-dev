@@ -1,0 +1,2 @@
+ALTER TABLE room_members
+ADD COLUMN IF NOT EXISTS ai_read_enabled BOOLEAN NOT NULL DEFAULT false;

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AIThreadView } from '@/components/ai/AIThreadView';
-import { useCacheStore } from '@/lib/stores';
+import { useCacheStore, useSplitStore } from '@/lib/stores';
 import type { AIThread } from '@/types/database';
 
 interface AIThreadPanelProps {
@@ -14,6 +14,8 @@ interface AIThreadPanelProps {
 export function AIThreadPanel({ threadId, variant = 'embedded' }: AIThreadPanelProps) {
     const supabase = useMemo(() => createClient(), []);
     const { threadCache, setThreadCache } = useCacheStore();
+    const splitTabs = useSplitStore((state) => state.tabs);
+    const updateTab = useSplitStore((state) => state.updateTab);
     const cached = threadCache.get(threadId);
 
     const [userId, setUserId] = useState<string | null>(cached?.userId || null);
@@ -122,6 +124,13 @@ export function AIThreadPanel({ threadId, variant = 'embedded' }: AIThreadPanelP
     useEffect(() => {
         fetchThread();
     }, [fetchThread]);
+
+    useEffect(() => {
+        if (variant !== 'embedded' || !thread?.title) return;
+        splitTabs
+            .filter((tab) => tab.threadId === threadId && tab.title !== thread.title)
+            .forEach((tab) => updateTab(tab.tabId, { title: thread.title || 'AIスレッド' }));
+    }, [variant, thread?.title, threadId, splitTabs, updateTab]);
 
     if (loading) {
         return (

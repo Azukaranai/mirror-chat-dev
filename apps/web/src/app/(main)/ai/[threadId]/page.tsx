@@ -13,8 +13,8 @@ export default function AIThreadPage() {
     if (!userId) return null;
 
     return (
-        <div className="flex h-full flex-col">
-            <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex flex-col h-full w-full overflow-hidden">
+            <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
                 <AIThreadView
                     threadId={threadId}
                     userId={userId}

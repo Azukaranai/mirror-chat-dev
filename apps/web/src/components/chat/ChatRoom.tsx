@@ -3,12 +3,55 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
-import { getStorageUrl, getInitials, formatMessageTime, formatDateDivider, parseSharedAIThreadCard, cn } from '@/lib/utils';
+import { getStorageUrl, getInitials, formatMessageTime, formatDateDivider, parseSharedAIThreadCard, CHAT_CONTEXT_PREFIX, CHAT_CONTEXT_STATUS_PREFIX, cn } from '@/lib/utils';
 import { useChatStore, useOverlayStore, useSplitStore } from '@/lib/stores';
 import type { TypingPayload } from '@/types';
 import { EditNicknameDialog } from '../profile/EditNicknameDialog';
+import { ChatGroupSettings } from './ChatGroupSettings';
+
+// Helper to format message content with links
+// Helper to format message content with links
+const formatMessageContent = (content: string, isMe: boolean = false, highlightQuery?: string) => {
+    if (!content) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = content.split(urlRegex);
+    const trimmedQuery = highlightQuery?.trim();
+    const hasQuery = Boolean(trimmedQuery);
+    const queryLower = trimmedQuery?.toLowerCase() || '';
+    const escapedQuery = trimmedQuery ? trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+    const highlightRegex = escapedQuery ? new RegExp(`(${escapedQuery})`, 'gi') : null;
+
+    return parts.map((part, index) => {
+        if (part.match(urlRegex)) {
+            return (
+                <a
+                    key={index}
+                    href={part}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={isMe ? "text-white underline decoration-white/50 hover:opacity-90 break-all" : "text-primary-500 hover:underline break-all"}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {part}
+                </a>
+            );
+        }
+        if (!hasQuery || !highlightRegex) return part;
+        return part.split(highlightRegex).map((chunk, chunkIndex) => {
+            if (chunk.toLowerCase() !== queryLower) return chunk;
+            return (
+                <mark
+                    key={`${index}-${chunkIndex}`}
+                    className="rounded px-0.5 bg-amber-300/70 text-surface-900 dark:bg-amber-400/40 dark:text-surface-100"
+                >
+                    {chunk}
+                </mark>
+            );
+        });
+    });
+};
 
 // Icons
 const ArrowLeftIcon = ({ className }: { className?: string }) => (
@@ -59,6 +102,25 @@ const ChevronDownIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const UserGroupIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 9.098 9.098 0 003.74.477m.94-3.197a5.971 5.971 0 00-.941-3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+    </svg>
+);
+
+const UserPlusIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
+    </svg>
+);
+
+const Cog6ToothIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l-.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.149-.894z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+);
+
 interface AttachmentItem {
     id: string;
     bucket: string;
@@ -87,7 +149,20 @@ interface RoomInfo {
     type: 'dm' | 'group';
     handle?: string | null;
     friendId?: string;
+    group_id?: string;
 }
+
+type GroupLogEvent = {
+    type: 'group_event';
+    action: 'settings_updated' | 'member_added' | 'member_removed' | 'member_left';
+    actorId?: string;
+    targetIds?: string[];
+    targetId?: string;
+    changes?: {
+        name?: string;
+        avatarUpdated?: boolean;
+    };
+};
 
 interface ChatRoomProps {
     roomId: string;
@@ -97,6 +172,7 @@ interface ChatRoomProps {
 export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [supabase, setSupabase] = useState<any>(null);
     const router = useRouter();
+    const searchParams = useSearchParams();
     const openWindow = useOverlayStore((state) => state.openWindow);
     const addSplitTab = useSplitStore((state) => state.addTab);
     const typingUsers = useChatStore((state) => state.typingUsers);
@@ -105,6 +181,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const setTypingUsers = useChatStore((state) => state.setTypingUsers);
     const fetchNotifications = useChatStore((state) => state.fetchNotifications);
     const [messages, setMessages] = useState<Message[]>([]);
+    const [systemNameMap, setSystemNameMap] = useState<Record<string, string>>({});
     const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
     const [isEditingName, setIsEditingName] = useState(false);
     const [input, setInput] = useState('');
@@ -118,16 +195,30 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [attachMenuOpen, setAttachMenuOpen] = useState(false);
     const [threadPickerOpen, setThreadPickerOpen] = useState(false);
     const [availableThreads, setAvailableThreads] = useState<any[]>([]);
+    const [threadPickerCreating, setThreadPickerCreating] = useState(false);
+    const [threadPickerError, setThreadPickerError] = useState<string | null>(null);
     const [currentUserName, setCurrentUserName] = useState<string | null>(null);
     const [actionMenuMessageId, setActionMenuMessageId] = useState<string | null>(null);
     const [actionMenuStyles, setActionMenuStyles] = useState<React.CSSProperties>({});
     const [roomMenuOpen, setRoomMenuOpen] = useState(false);
+    const [roomMenuPosition, setRoomMenuPosition] = useState<{ top: number; left: number; visibility?: 'hidden' | 'visible' }>({
+        top: 0,
+        left: 0,
+        visibility: 'hidden'
+    });
+    const roomMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+    const roomMenuContainerRef = useRef<HTMLDivElement | null>(null);
+    const roomMenuAnchorRef = useRef<DOMRect | null>(null);
+    const [showGroupSettings, setShowGroupSettings] = useState(false);
+    const [groupSettingsInitialView, setGroupSettingsInitialView] = useState<'members' | 'invite' | 'settings'>('members');
     const [confirmDeleteRoom, setConfirmDeleteRoom] = useState(false);
+    const [confirmHideRoom, setConfirmHideRoom] = useState(false);
     // In-chat search
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<string[]>([]); // message IDs
     const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+    const [showThreadReadManager, setShowThreadReadManager] = useState(false);
     const [threadStatus, setThreadStatus] = useState<
         Record<
             string,
@@ -138,11 +229,15 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 owner?: { userId: string; displayName: string; avatarPath: string | null };
                 model?: string;
                 title?: string;
-                ownerHasKey?: boolean;
+                ownerHasKey?: boolean | null;
+                sourceRoomId?: string | null;
+                readEnabled?: boolean | null;
             }
         >
     >({});
-    const [myApiKeys, setMyApiKeys] = useState<Record<string, boolean>>({});
+    const aiReadEnabledRef = useRef(false);
+    const aiContextHandledRef = useRef<Set<string>>(new Set());
+    const threadStatusRef = useRef(threadStatus);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +248,211 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const initialScrollDone = useRef(false);
+    const highlightMessageId = searchParams.get('highlight');
+    const lastHighlightRef = useRef<string | null>(null);
+    useEffect(() => {
+        threadStatusRef.current = threadStatus;
+    }, [threadStatus]);
+
+    const getLatestSharedThreadCard = useCallback(() => {
+        for (let i = messagesRef.current.length - 1; i >= 0; i -= 1) {
+            const msg = messagesRef.current[i];
+            if (msg.kind === 'shared_ai_thread' && msg.sharedCard?.threadId) {
+                return msg.sharedCard;
+            }
+        }
+        return null;
+    }, []);
+
+    const ensureAiThreadViewMember = useCallback(
+        async (threadId: string) => {
+            if (!supabase || !userId || !threadId) return;
+            try {
+                await (supabase
+                    .from('ai_thread_members') as any)
+                    .upsert(
+                        {
+                            thread_id: threadId,
+                            user_id: userId,
+                            permission: 'VIEW',
+                        },
+                        { onConflict: 'thread_id,user_id', ignoreDuplicates: true }
+                    );
+            } catch (err) {
+                console.error('Failed to add AI thread viewer:', err);
+            }
+        },
+        [supabase, userId]
+    );
+
+    // Ensure current user is a viewer of the shared AI thread (for RLS safety)
+    const appendChatContextToThread = useCallback(
+        async (msg: Message) => {
+            if (!supabase) return;
+            if (!msg.content || msg.kind !== 'text') return;
+            if (aiContextHandledRef.current.has(msg.id)) return;
+
+            const sharedCard = getLatestSharedThreadCard();
+            const threadId = sharedCard?.threadId;
+            if (!threadId) return;
+
+            const status = threadStatusRef.current[threadId];
+            // 読取設定が明示的にOFFなら送らない。source指定がある場合は一致時のみ送る。
+            if (status?.readEnabled === false) return;
+            if (status?.sourceRoomId && status.sourceRoomId !== roomId) return;
+
+            try {
+                // 念のため閲覧メンバーに登録（RLS回避）
+                await ensureAiThreadViewMember(threadId);
+
+                aiReadEnabledRef.current = status?.readEnabled ?? aiReadEnabledRef.current;
+                aiContextHandledRef.current.add(msg.id);
+                const contextContent = `${CHAT_CONTEXT_PREFIX} ${msg.sender_name || 'User'}: ${msg.content}`;
+                const { error } = await supabase
+                    .from('ai_messages')
+                    .insert({
+                        thread_id: threadId,
+                        role: 'system',
+                        sender_user_id: msg.sender_user_id,
+                        sender_kind: 'system',
+                        content: contextContent,
+                    } as any);
+
+                if (error) {
+                    console.error('Failed to append chat context to AI thread:', error);
+                    aiContextHandledRef.current.delete(msg.id);
+                }
+            } catch (err) {
+                console.error('Failed to append chat context (exception):', err);
+                aiContextHandledRef.current.delete(msg.id);
+            }
+        },
+        [getLatestSharedThreadCard, supabase, userId, roomId, ensureAiThreadViewMember]
+    );
+
+    const resolveCustomName = useCallback(
+        async (targetUserId: string, fallbackName?: string | null) => {
+            if (!supabase || !userId || !targetUserId) return fallbackName || 'Unknown';
+            try {
+                const { data: friendship } = await supabase
+                    .from('friendships')
+                    .select('requester_id, requester_nickname, addressee_nickname')
+                    .or(`and(requester_id.eq.${userId},addressee_id.eq.${targetUserId}),and(requester_id.eq.${targetUserId},addressee_id.eq.${userId})`)
+                    .maybeSingle();
+
+                if (friendship) {
+                    if (friendship.requester_id === userId && friendship.requester_nickname) {
+                        return friendship.requester_nickname;
+                    }
+                    if (friendship.requester_id !== userId && friendship.addressee_nickname) {
+                        return friendship.addressee_nickname;
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to resolve custom name', e);
+            }
+            return fallbackName || 'Unknown';
+        },
+        [supabase, userId]
+    );
+
+    const parseGroupLogEvent = useCallback((content: string | null): GroupLogEvent | null => {
+        if (!content || content[0] !== '{') return null;
+        try {
+            const parsed = JSON.parse(content);
+            if (parsed?.type === 'group_event') {
+                return parsed as GroupLogEvent;
+            }
+        } catch {
+            return null;
+        }
+        return null;
+    }, []);
+
+    const getSystemName = useCallback(
+        (targetUserId?: string, fallbackName?: string | null) => {
+            if (!targetUserId) return fallbackName || 'Unknown';
+            return systemNameMap[targetUserId] || fallbackName || 'Unknown';
+        },
+        [systemNameMap]
+    );
+
+    const formatGroupLogMessage = useCallback(
+        (content: string | null) => {
+            const event = parseGroupLogEvent(content);
+            if (!event) return content || '';
+
+            const actorName = getSystemName(event.actorId);
+            const targetName = event.targetId ? getSystemName(event.targetId) : '';
+            const targetNames = event.targetIds?.map((id) => getSystemName(id)) || [];
+
+            switch (event.action) {
+                case 'settings_updated':
+                    if (event.changes?.name && event.changes?.avatarUpdated) {
+                        return `${actorName}がグループ名を「${event.changes.name}」に変更し、アイコンを更新しました`;
+                    }
+                    if (event.changes?.name) {
+                        return `${actorName}がグループ名を「${event.changes.name}」に変更しました`;
+                    }
+                    if (event.changes?.avatarUpdated) {
+                        return `${actorName}がグループアイコンを更新しました`;
+                    }
+                    return `${actorName}がグループ設定を更新しました`;
+                case 'member_added':
+                    return targetNames.length > 0
+                        ? `${targetNames.join('、')}を${actorName}が追加しました`
+                        : `メンバーを${actorName}が追加しました`;
+                case 'member_removed':
+                    return `${targetName}を${actorName}が削除しました`;
+                case 'member_left':
+                    return `${actorName}が退出しました`;
+                default:
+                    return content || '';
+            }
+        },
+        [getSystemName, parseGroupLogEvent]
+    );
+
+    useEffect(() => {
+        const ids = new Set<string>();
+        messages.forEach((msg) => {
+            if (msg.kind !== 'system') return;
+            const event = parseGroupLogEvent(msg.content);
+            if (!event) return;
+            if (event.actorId) ids.add(event.actorId);
+            if (event.targetId) ids.add(event.targetId);
+            (event.targetIds || []).forEach((id) => ids.add(id));
+        });
+
+        const missing = Array.from(ids).filter((id) => !systemNameMap[id]);
+        if (missing.length === 0) return;
+
+        let canceled = false;
+        const resolveMissing = async () => {
+            const updates: Record<string, string> = {};
+            await Promise.all(
+                missing.map(async (id) => {
+                    updates[id] = await resolveCustomName(id);
+                })
+            );
+            if (!canceled) {
+                setSystemNameMap((prev) => ({ ...prev, ...updates }));
+            }
+        };
+
+        resolveMissing();
+
+        return () => { canceled = true; };
+    }, [messages, parseGroupLogEvent, resolveCustomName, systemNameMap]);
+
+    // 既読機能関連
+    const [otherMemberReadStatus, setOtherMemberReadStatus] = useState<{
+        lastReadMessageId: string | null;
+        lastReadAt: string | null;
+        showReadStatus: boolean;
+    } | null>(null);
+    const [myShowReadStatus, setMyShowReadStatus] = useState(true);
+    const [readStatusSettingsOpen, setReadStatusSettingsOpen] = useState(false);
 
     // Initialize Supabase client on mount
     useEffect(() => {
@@ -166,45 +466,6 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
-
-    // Fetch my api keys with realtime
-    useEffect(() => {
-        if (!supabase || !userId) return;
-
-        const fetchKeys = () => {
-            supabase.from('user_llm_keys').select('provider').eq('user_id', userId)
-                .then(({ data }: any) => {
-                    if (data) {
-                        setMyApiKeys({
-                            google: data.some((k: any) => k.provider === 'google'),
-                            openai: data.some((k: any) => k.provider === 'openai'),
-                        });
-                    }
-                });
-        };
-
-        fetchKeys();
-
-        const channel = supabase
-            .channel('my_api_keys_updates')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'user_llm_keys',
-                    filter: `user_id=eq.${userId}`,
-                },
-                fetchKeys
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [supabase, userId]);
-
-
 
     const handleScroll = () => {
         if (!scrollContainerRef.current) return;
@@ -239,21 +500,108 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         router.push('/talk');
     };
 
+    const logGroupEvent = async (event: GroupLogEvent) => {
+        if (!supabase) return;
+        try {
+            await supabase.from('messages').insert({
+                room_id: roomId,
+                sender_user_id: userId,
+                kind: 'system',
+                content: JSON.stringify(event),
+            } as any);
+        } catch (err) {
+            console.error('Failed to write group log:', err);
+        }
+    };
+
     // Leave/Delete room
     const handleLeaveRoom = async () => {
         if (!supabase) return;
-        // For DM, we just hide it. For groups, we leave.
+        // For DM, mark hidden + clear my history. For groups, we leave.
         if (roomInfo?.type === 'dm') {
-            await handleHideRoom();
-        } else {
-            // Leave the group room
+            const nowIso = new Date().toISOString();
             await (supabase
                 .from('room_members') as any)
-                .delete()
+                .update({ hidden_at: nowIso, cleared_before: nowIso })
                 .eq('room_id', roomId)
                 .eq('user_id', userId);
-
+            localStorage.setItem(`room-cleared-${roomId}`, nowIso);
             router.push('/talk');
+        } else {
+            try {
+                const { data: membership, error: membershipError } = await (supabase
+                    .from('room_members') as any)
+                    .select('user_id')
+                    .eq('room_id', roomId)
+                    .eq('user_id', userId)
+                    .maybeSingle();
+                if (membershipError) {
+                    throw membershipError;
+                }
+                if (!membership) {
+                    const { error: hideError } = await (supabase
+                        .from('room_members') as any)
+                        .update({ hidden_at: new Date().toISOString() })
+                        .eq('room_id', roomId)
+                        .eq('user_id', userId);
+                    if (hideError) {
+                        throw hideError;
+                    }
+                    setLoadError('退出に失敗しました。もう一度お試しください。');
+                    return;
+                }
+
+                await logGroupEvent({
+                    type: 'group_event',
+                    action: 'member_left',
+                    actorId: userId,
+                });
+
+                const { error: preHideError } = await (supabase
+                    .from('room_members') as any)
+                    .update({ hidden_at: new Date().toISOString(), cleared_before: new Date().toISOString() })
+                    .eq('room_id', roomId)
+                    .eq('user_id', userId);
+                if (preHideError) {
+                    throw preHideError;
+                }
+
+                if (roomInfo?.group_id) {
+                    const { error: groupError } = await (supabase
+                        .from('group_members') as any)
+                        .delete()
+                        .eq('group_id', roomInfo.group_id)
+                        .eq('user_id', userId);
+                    if (groupError) {
+                        throw groupError;
+                    }
+                }
+
+                const { error: roomError } = await (supabase
+                    .from('room_members') as any)
+                    .delete()
+                    .eq('room_id', roomId)
+                    .eq('user_id', userId);
+                if (roomError) {
+                    throw roomError;
+                }
+
+                router.replace('/talk');
+                router.refresh();
+            } catch (err) {
+                console.error('Failed to leave room:', err);
+                const { error: hideError } = await (supabase
+                    .from('room_members') as any)
+                    .update({ hidden_at: new Date().toISOString() })
+                    .eq('room_id', roomId)
+                    .eq('user_id', userId);
+                if (hideError) {
+                    console.error('Failed to hide room after leave failure:', hideError);
+                }
+                setLoadError('退出に失敗しました。もう一度お試しください。');
+                router.replace('/talk');
+                router.refresh();
+            }
         }
         setConfirmDeleteRoom(false);
         setRoomMenuOpen(false);
@@ -285,6 +633,16 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             }
         });
     }, []);
+
+    // Auto scroll when split view opens on mobile (UI-002)
+    const splitTabs = useSplitStore((state) => state.tabs);
+    useEffect(() => {
+        if (splitTabs.length > 0 && isMobile) {
+            setTimeout(() => {
+                scrollToBottom('auto');
+            }, 500);
+        }
+    }, [splitTabs.length, isMobile, scrollToBottom]);
 
     // Adjust scroll when visual viewport changes (e.g. mobile keyboard opens)
     useEffect(() => {
@@ -403,6 +761,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 .eq('room_id', roomId)
                 .eq('user_id', userId);
 
+            const { data: myMemberData } = await supabase
+                .from('room_members')
+                .select('show_read_status')
+                .eq('room_id', roomId)
+                .eq('user_id', userId)
+                .single();
+
+            if (myMemberData) {
+                setMyShowReadStatus((myMemberData as any).show_read_status ?? true);
+            }
+
             // Get room info
             const { data: room } = await supabase
                 .from('rooms')
@@ -421,7 +790,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             if ((room as any).type === 'dm') {
                 const { data: otherMember } = await supabase
                     .from('room_members')
-                    .select('user_id')
+                    .select('user_id, last_read_message_id, last_read_at, show_read_status')
                     .eq('room_id', roomId)
                     .neq('user_id', userId)
                     .single();
@@ -464,9 +833,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                         type: (room as any).type,
                         handle,
                         friendId: (otherMember as any).user_id,
+                        group_id: (room as any).group_id,
+                    });
+
+                    // 既読情報を取得（DM相手）
+                    setOtherMemberReadStatus({
+                        lastReadMessageId: (otherMember as any).last_read_message_id || null,
+                        lastReadAt: (otherMember as any).last_read_at || null,
+                        showReadStatus: (otherMember as any).show_read_status ?? true,
                     });
                 } else {
-                    setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
+                    setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type, group_id: (room as any).group_id });
                 }
             } else if ((room as any).group_id) {
                 const { data: group } = await supabase
@@ -482,10 +859,26 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             }
 
             if ((room as any).type !== 'dm') {
-                setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type });
+                setRoomInfo({ name, avatar_path: avatarPath, type: (room as any).type, group_id: (room as any).group_id });
             }
 
             // Get messages
+            // 自分が過去に「削除」した場合、そこを起点に新規メッセージのみ表示する
+            const { data: myMembership } = await (supabase
+                .from('room_members') as any)
+                .select('cleared_before, hidden_at')
+                .eq('room_id', roomId)
+                .eq('user_id', userId)
+                .maybeSingle();
+            let clearedBefore = myMembership?.cleared_before ? new Date(myMembership.cleared_before) : null;
+            if (!clearedBefore && myMembership?.hidden_at) {
+                clearedBefore = new Date(myMembership.hidden_at);
+            }
+            if (!clearedBefore) {
+                const localCutoff = localStorage.getItem(`room-cleared-${roomId}`);
+                if (localCutoff) clearedBefore = new Date(localCutoff);
+            }
+
             const { data: msgs, error: msgsError } = await supabase
                 .from('messages')
                 .select(`
@@ -498,6 +891,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
           message_attachments(id, bucket, object_path, mime, size)
         `)
                 .eq('room_id', roomId)
+                .gt('created_at', clearedBefore ? clearedBefore.toISOString() : '1970-01-01T00:00:00Z')
                 .order('created_at', { ascending: true });
 
             let messageRows = msgs as any[] | null;
@@ -515,6 +909,10 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 .from('profiles')
                 .select('user_id, display_name, avatar_path')
                 .in('user_id', senderIds);
+            const profilesMap = (profiles || []).reduce((acc: Record<string, any>, profile: any) => {
+                acc[profile.user_id] = profile;
+                return acc;
+            }, {});
 
             // Fetch nicknames for senders
             let nicknames: Record<string, string> = {};
@@ -539,9 +937,15 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 console.warn('Failed to fetch nicknames', e);
             }
 
+            const baseNameMap: Record<string, string> = {};
+            senderIds.forEach((id) => {
+                baseNameMap[id] = nicknames[id] || profilesMap[id]?.display_name || 'Unknown';
+            });
+            setSystemNameMap(baseNameMap);
+
             const formattedMessages: Message[] = messageRows.map((msg) => {
-                const sender = profiles?.find((p: any) => p.user_id === msg.sender_user_id);
-                const displayName = nicknames[msg.sender_user_id] || (sender as any)?.display_name || 'Unknown';
+                const sender = profilesMap[msg.sender_user_id];
+                const displayName = nicknames[msg.sender_user_id] || sender?.display_name || 'Unknown';
 
                 return {
                     id: msg.id,
@@ -565,12 +969,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             if (messageRows.length > 0) {
                 await (supabase
                     .from('room_members') as any)
-                    .update({ last_read_message_id: messageRows[messageRows.length - 1].id })
+                    .update({
+                        last_read_message_id: messageRows[messageRows.length - 1].id,
+                        last_read_at: new Date().toISOString()
+                    })
                     .eq('room_id', roomId)
                     .eq('user_id', userId);
 
-                // Refresh notifications
-                fetchNotifications();
+                // Refresh notifications with delay
+                setTimeout(() => {
+                    useChatStore.getState().fetchNotifications();
+                }, 1000);
             }
 
             setLoading(false);
@@ -643,6 +1052,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     .select('display_name, avatar_path')
                     .eq('user_id', msgData.sender_user_id)
                     .single();
+                const senderName = await resolveCustomName(msgData.sender_user_id, (sender as any)?.display_name);
+                setSystemNameMap((prev) => ({
+                    ...prev,
+                    [msgData.sender_user_id]: senderName || (sender as any)?.display_name || prev[msgData.sender_user_id] || 'Unknown',
+                }));
 
                 const formattedMsg: Message = {
                     id: msgData.id,
@@ -650,7 +1064,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     kind: msgData.kind,
                     reply_to_message_id: msgData.reply_to_message_id,
                     sender_user_id: msgData.sender_user_id,
-                    sender_name: (sender as any)?.display_name || 'Unknown',
+                    sender_name: senderName,
                     sender_avatar: (sender as any)?.avatar_path,
                     created_at: msgData.created_at,
                     is_mine: msgData.sender_user_id === userId,
@@ -665,12 +1079,19 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     return [...prev, formattedMsg];
                 });
 
+                void appendChatContextToThread(formattedMsg);
+
                 // Update last read
                 await (supabase
                     .from('room_members') as any)
-                    .update({ last_read_message_id: msgData.id })
+                    .update({ last_read_message_id: msgData.id, last_read_at: new Date().toISOString() })
                     .eq('room_id', roomId)
                     .eq('user_id', userId);
+
+                // Refresh notifications
+                setTimeout(() => {
+                    useChatStore.getState().fetchNotifications();
+                }, 1000);
             }
         );
 
@@ -691,6 +1112,32 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             }
         );
 
+        // Listen for room_members UPDATE events (for read status sync)
+        channel.on(
+            'postgres_changes',
+            {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'room_members',
+                filter: `room_id=eq.${roomId}`,
+            },
+            (payload: any) => {
+                const updated = payload.new as any;
+                // 相手の既読状態が更新された場合
+                if (updated.user_id !== userId) {
+                    setOtherMemberReadStatus({
+                        lastReadMessageId: updated.last_read_message_id || null,
+                        lastReadAt: updated.last_read_at || null,
+                        showReadStatus: updated.show_read_status ?? true,
+                    });
+                }
+                // 自分の設定が更新された場合（別タブなどから）
+                if (updated.user_id === userId) {
+                    setMyShowReadStatus(updated.show_read_status ?? true);
+                }
+            }
+        );
+
         channel.subscribe();
 
         channelRef.current = channel;
@@ -700,7 +1147,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             channelRef.current = null;
             setTypingUsers(roomId, []);
         };
-    }, [supabase, roomId, userId, addTypingUser, removeTypingUser, setTypingUsers, fetchNotifications]);
+    }, [supabase, roomId, userId, addTypingUser, removeTypingUser, setTypingUsers, fetchNotifications, resolveCustomName]);
 
     // Listen for new message signals from RoomList (via ChatStore)
     const newMessageSignal = useChatStore((state) => state.newMessageSignal);
@@ -708,6 +1155,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     useEffect(() => {
         if (!newMessageSignal) return;
         if (newMessageSignal.roomId !== roomId) return;
+        if (!supabase) return;
 
         const messageId = newMessageSignal.messageId;
 
@@ -718,6 +1166,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
         // Fetch the new message details
         const fetchNewMessage = async () => {
+            if (!supabase) return;
             const { data: fetchedMsg, error } = await supabase
                 .from('messages')
                 .select(`
@@ -744,6 +1193,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 .select('display_name, avatar_path')
                 .eq('user_id', msgData.sender_user_id)
                 .single();
+            const senderName = await resolveCustomName(msgData.sender_user_id, (sender as any)?.display_name);
+            setSystemNameMap((prev) => ({
+                ...prev,
+                [msgData.sender_user_id]: senderName || (sender as any)?.display_name || prev[msgData.sender_user_id] || 'Unknown',
+            }));
 
             const formattedMsg: Message = {
                 id: msgData.id,
@@ -751,7 +1205,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 kind: msgData.kind,
                 reply_to_message_id: msgData.reply_to_message_id,
                 sender_user_id: msgData.sender_user_id,
-                sender_name: (sender as any)?.display_name || 'Unknown',
+                sender_name: senderName,
                 sender_avatar: (sender as any)?.avatar_path,
                 created_at: msgData.created_at,
                 is_mine: msgData.sender_user_id === userId,
@@ -766,20 +1220,54 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 return [...prev, formattedMsg];
             });
 
+            void appendChatContextToThread(formattedMsg);
+
             // Update last read
             await (supabase
                 .from('room_members') as any)
-                .update({ last_read_message_id: msgData.id })
+                .update({ last_read_message_id: msgData.id, last_read_at: new Date().toISOString() })
                 .eq('room_id', roomId)
                 .eq('user_id', userId);
+
+            // Refresh notifications
+            setTimeout(() => {
+                useChatStore.getState().fetchNotifications();
+            }, 1000);
+            // Refresh notification badge  
         };
 
         fetchNewMessage();
-    }, [newMessageSignal, roomId, supabase, userId]);
+    }, [newMessageSignal, roomId, supabase, userId, resolveCustomName]);
 
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
+
+    useEffect(() => {
+        if (!roomMenuOpen || !roomMenuContainerRef.current || !roomMenuAnchorRef.current) return;
+        const frame = requestAnimationFrame(() => {
+            const anchor = roomMenuAnchorRef.current!;
+            const menuRect = roomMenuContainerRef.current!.getBoundingClientRect();
+            const margin = 8;
+
+            let left = anchor.right - menuRect.width;
+            let top = anchor.bottom + 8;
+
+            if (left < margin) left = margin;
+            if (left + menuRect.width > window.innerWidth - margin) {
+                left = window.innerWidth - menuRect.width - margin;
+            }
+
+            if (top + menuRect.height > window.innerHeight - margin) {
+                top = anchor.top - menuRect.height - 8;
+            }
+            if (top < margin) top = margin;
+
+            setRoomMenuPosition({ top, left, visibility: 'visible' });
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [roomMenuOpen]);
 
     // Scroll to bottom on new messages
     useEffect(() => {
@@ -793,6 +1281,13 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         }
     }, [messages, scrollToBottom]);
 
+    useEffect(() => {
+        if (!highlightMessageId || messages.length === 0) return;
+        if (lastHighlightRef.current === highlightMessageId) return;
+        lastHighlightRef.current = highlightMessageId;
+        setTimeout(() => scrollToMessage(highlightMessageId), 50);
+    }, [highlightMessageId, messages]);
+
     // Check availability and details of shared threads
     useEffect(() => {
         const checkThreads = async () => {
@@ -800,15 +1295,15 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 .filter((m) => m.kind === 'shared_ai_thread' && m.sharedCard)
                 .map((m) => m.sharedCard!.threadId);
 
-            const uniqueIds = Array.from(new Set(threadIds)).filter(
-                (id) => !(id in threadStatus)
-            );
-            if (uniqueIds.length === 0) return;
+            const allIds = Array.from(new Set(threadIds));
+            // 読取管理を開いたときは最新状態へリフレッシュ、それ以外は未取得のみ
+            const fetchIds = showThreadReadManager ? allIds : allIds.filter((id) => !(id in threadStatus));
+            if (fetchIds.length === 0) return;
 
             const { data: threads } = await supabase
                 .from('ai_threads')
-                .select('id, title, archived_at, created_at, owner_user_id, model')
-                .in('id', uniqueIds);
+                .select('id, title, archived_at, created_at, owner_user_id, model, source_room_id, read_enabled')
+                .in('id', fetchIds);
 
             if (!threads) return;
 
@@ -821,7 +1316,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
             // Fetch key status (RPC)
             const { data: keyStatus } = await supabase
-                .rpc('get_thread_owner_key_status', { p_thread_ids: uniqueIds });
+                .rpc('get_thread_owner_key_status', { p_thread_ids: fetchIds });
 
             const keyMap = new Map();
             if (keyStatus) {
@@ -831,8 +1326,8 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             }
 
             setThreadStatus((prev) => {
-                const next = { ...prev };
-                uniqueIds.forEach((id) => {
+                const next = showThreadReadManager ? { ...prev } : { ...prev };
+                fetchIds.forEach((id) => {
                     const found = threads.find((t: any) => t.id === id);
                     if (found) {
                         const owner = profiles?.find((p: any) => p.user_id === found.owner_user_id);
@@ -842,7 +1337,10 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             createdAt: found.created_at,
                             model: found.model,
                             title: found.title,
-                            ownerHasKey: keyMap.get(id) || false,
+                            sourceRoomId: found.source_room_id,
+                            readEnabled: found.read_enabled,
+                            // treat "unknown" as null so we don't falsely show inactive styling
+                            ownerHasKey: keyMap.has(id) ? keyMap.get(id) : null,
                             owner: owner
                                 ? {
                                     userId: owner.user_id,
@@ -852,9 +1350,12 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                 : undefined,
                         };
                     } else {
-                        // If not found, it might be RLS restricted (shared from others).
-                        // Instead of marking as deleted, assume it exists.
-                        next[id] = { exists: true, archived: false };
+                        // 見つからない＝削除済みとみなしてカードに表示する
+                        next[id] = {
+                            exists: false,
+                            archived: false,
+                            ownerHasKey: keyMap.has(id) ? keyMap.get(id) : null,
+                        };
                     }
                 });
                 return next;
@@ -864,7 +1365,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         if (messages.length > 0) {
             checkThreads();
         }
-    }, [messages, supabase]);
+    }, [messages, supabase, showThreadReadManager]);
 
     // Realtime update for shared thread cards
     useEffect(() => {
@@ -890,6 +1391,8 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                     title: updated.title,
                                     model: updated.model,
                                     archived: !!updated.archived_at,
+                                    sourceRoomId: updated.source_room_id,
+                                    readEnabled: updated.read_enabled,
                                 },
                             };
                         }
@@ -916,6 +1419,52 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
         if (data) {
             setAvailableThreads(data);
+        }
+    };
+
+    const handleCreateAndSendThread = async () => {
+        if (!supabase) return;
+        setThreadPickerCreating(true);
+        setThreadPickerError(null);
+
+        try {
+            let initialModel = 'gpt-5.2';
+            try {
+                const { data: keys } = await supabase
+                    .from('user_llm_keys')
+                    .select('provider')
+                    .eq('user_id', userId);
+                const providers = new Set(keys?.map((k: any) => k.provider) || []);
+                if (providers.has('openai')) {
+                    initialModel = 'gpt-5.2';
+                } else if (providers.has('google')) {
+                    initialModel = 'gemini-2.5-flash';
+                }
+            } catch {
+                // keep default
+            }
+
+            const baseTitle = roomInfo?.name ? `${roomInfo.name}のスレッド` : '新規スレッド';
+            const { data: newThread, error } = await supabase
+                .from('ai_threads')
+                .insert({
+                    owner_user_id: userId,
+                    title: baseTitle,
+                    model: initialModel,
+                } as any)
+                .select('id, title, model, created_at')
+                .single();
+
+            if (error || !newThread) {
+                throw error || new Error('Failed to create thread');
+            }
+
+            await handleSendThread(newThread);
+        } catch (e) {
+            console.error('Failed to create and share thread:', e);
+            setThreadPickerError('スレッドの作成に失敗しました');
+        } finally {
+            setThreadPickerCreating(false);
         }
     };
 
@@ -987,9 +1536,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 prev.some((msg) => msg.id === optimisticMessage.id) ? prev : [...prev, optimisticMessage]
             );
 
+            void appendChatContextToThread(optimisticMessage);
+
             await (supabase
                 .from('room_members') as any)
-                .update({ last_read_message_id: newMessage.id })
+                .update({ last_read_message_id: newMessage.id, last_read_at: new Date().toISOString() })
                 .eq('room_id', roomId)
                 .eq('user_id', userId);
 
@@ -1110,6 +1661,13 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             .single();
 
         if (!error && inserted) {
+            // Ensure this thread reads from this room by default
+            await supabase
+                .from('ai_threads')
+                .update({ source_room_id: roomId, read_enabled: true })
+                .eq('id', thread.id)
+                .is('source_room_id', null);
+
             // Grant view access to other room members
             const { data: members } = await supabase
                 .from('room_members')
@@ -1131,9 +1689,14 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
             await (supabase
                 .from('room_members') as any)
-                .update({ last_read_message_id: (inserted as any).id })
+                .update({ last_read_message_id: (inserted as any).id, last_read_at: new Date().toISOString() })
                 .eq('room_id', roomId)
                 .eq('user_id', userId);
+
+            // Refresh notifications
+            setTimeout(() => {
+                useChatStore.getState().fetchNotifications();
+            }, 1000);
         }
     };
 
@@ -1170,29 +1733,113 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         }
     };
 
-    const handleAttachClick = () => {
+    // 既読表示設定を切り替え
+    const handleToggleReadStatus = async (show: boolean) => {
+        if (!supabase) return;
+
+        try {
+            const { error } = await supabase.rpc('toggle_read_status_visibility', {
+                p_room_id: roomId,
+                p_show: show,
+            });
+
+            if (error) throw error;
+
+            setMyShowReadStatus(show);
+            setReadStatusSettingsOpen(false);
+        } catch (e) {
+            console.error('Failed to toggle read status:', e);
+            alert('設定の変更に失敗しました');
+        }
+    };
+
+    const handleAttachClick = (e: any) => {
+        e.stopPropagation();
         setAttachMenuOpen(!attachMenuOpen);
     };
 
-    const handleFileOption = () => {
-        setAttachMenuOpen(false);
-        fileInputRef.current?.click();
+    const handleFileOption = (e: any) => {
+        e.stopPropagation();
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+        // Delay closing to prevent blocking the native file dialog
+        setTimeout(() => setAttachMenuOpen(false), 500);
     };
 
     const handleThreadOption = () => {
         setThreadPickerOpen(true);
+        setThreadPickerError(null);
         fetchThreadsForPicker();
     };
 
-    const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []);
+    const uniqueSharedThreadIds = useMemo(() => {
+        const ids = messages
+            .filter((m) => m.kind === 'shared_ai_thread' && m.sharedCard?.threadId)
+            .map((m) => m.sharedCard!.threadId);
+        return Array.from(new Set(ids));
+    }, [messages]);
+
+    const handleToggleThreadRead = async (threadId: string, nextEnabled: boolean) => {
+        if (!supabase) return;
+        try {
+            await supabase
+                .from('ai_threads')
+                .update({
+                    read_enabled: nextEnabled,
+                    // 読み取りを有効にする場合はこのトークを読込先としてセット
+                    source_room_id: nextEnabled ? roomId : null,
+                } as any)
+                .eq('id', threadId);
+
+            // ローカル状態も即時反映してボタン表示を安定化
+            setThreadStatus((prev) => ({
+                ...prev,
+                [threadId]: {
+                    ...(prev[threadId] || {}),
+                    readEnabled: nextEnabled,
+                    sourceRoomId: nextEnabled ? roomId : null,
+                },
+            }));
+
+            const title = threadStatus[threadId]?.title || 'AIスレッド';
+            // ログをトーク側に記録（best effort）
+            await supabase.from('messages').insert({
+                room_id: roomId,
+                sender_user_id: userId,
+                kind: 'system',
+                content: `${currentUserName || 'ユーザ'}がスレッド「${title}」の読取を${nextEnabled ? 'オン' : 'オフ'}にしました`,
+            } as any);
+        } catch (err) {
+            console.error('Failed to toggle thread read setting', err);
+            // 失敗時はUIを元に戻し、最新状態を再フェッチ
+            setThreadStatus((prev) => ({
+                ...prev,
+                [threadId]: {
+                    ...(prev[threadId] || {}),
+                    readEnabled: prev[threadId]?.readEnabled ?? true,
+                    sourceRoomId: prev[threadId]?.sourceRoomId ?? null,
+                },
+            }));
+        }
+    };
+
+    // File processing logic (shared between input and DnD)
+    const processFiles = (files: File[]) => {
         if (files.length === 0) return;
 
         const maxSize = 25 * 1024 * 1024;
         const validFiles: File[] = [];
         let sizeError = false;
+        let videoError = false;
 
         files.forEach((file) => {
+            // Video files are not allowed (UI-006)
+            if (file.type.startsWith('video/')) {
+                videoError = true;
+                return;
+            }
+
             if (file.size > maxSize) {
                 sizeError = true;
                 return;
@@ -1200,15 +1847,59 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             validFiles.push(file);
         });
 
-        if (sizeError) {
+        if (videoError) {
+            setAttachmentError('動画ファイルは送信できません');
+            setTimeout(() => setAttachmentError(null), 4000);
+        } else if (sizeError) {
             setAttachmentError('ファイルサイズは25MB以下にしてください');
+            setTimeout(() => setAttachmentError(null), 4000);
         }
 
         if (validFiles.length > 0) {
             setPendingAttachments((prev) => [...prev, ...validFiles]);
         }
+    };
 
+    const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+        processFiles(files);
         event.target.value = '';
+    };
+
+    // Drag and Drop handlers (UI-012)
+    const [isDragging, setIsDragging] = useState(false);
+    const dragCounter = useRef(0);
+
+    const handleDragEnter = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current += 1;
+        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+            setIsDragging(true);
+        }
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current -= 1;
+        if (dragCounter.current === 0) {
+            setIsDragging(false);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        dragCounter.current = 0;
+        const files = Array.from(e.dataTransfer.files);
+        processFiles(files);
     };
 
     const handleRemovePendingAttachment = (index: number) => {
@@ -1242,9 +1933,27 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
 
     return (
-        <div className="flex flex-col h-full relative">
-            {/* Header */}
-            <header className="flex items-center gap-3 px-4 py-3 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900">
+        <div
+            className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+            onClick={() => setAttachMenuOpen(false)}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+        >
+            {/* Drag Overlay */}
+            {isDragging && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary-500/10 backdrop-blur-sm border-2 border-primary-500 border-dashed m-4 rounded-xl pointer-events-none">
+                    <div className="bg-white dark:bg-surface-800 p-6 rounded-xl shadow-xl flex flex-col items-center gap-4 animate-in zoom-in duration-200">
+                        <div className="w-16 h-16 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400">
+                            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                            </svg>
+                        </div>
+                        <p className="text-lg font-medium text-surface-900 dark:text-surface-100">ファイルをドロップして送信</p>
+                    </div>
+                </div>
+            )}    <header className="flex items-center gap-3 px-4 h-14 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 sticky top-0 z-20">
                 <Link href="/talk" className="md:hidden btn-icon">
                     <ArrowLeftIcon className="w-5 h-5" />
                 </Link>
@@ -1298,7 +2007,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 {/* Room menu */}
                 <div className="relative">
                     <button
-                        onClick={() => setRoomMenuOpen(!roomMenuOpen)}
+                        ref={roomMenuButtonRef}
+                        onClick={() => {
+                            if (!roomMenuOpen && roomMenuButtonRef.current) {
+                                const rect = roomMenuButtonRef.current.getBoundingClientRect();
+                                roomMenuAnchorRef.current = rect;
+                                setRoomMenuPosition({ top: rect.bottom + 8, left: rect.right - 192, visibility: 'hidden' });
+                                setRoomMenuOpen(true);
+                            } else {
+                                setRoomMenuOpen(false);
+                            }
+                        }}
                         className="btn-icon p-2"
                         aria-label="メニュー"
                     >
@@ -1309,9 +2028,61 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                     {roomMenuOpen && (
                         <>
                             <div className="fixed inset-0 z-10" onClick={() => setRoomMenuOpen(false)} />
-                            <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-20 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div
+                                ref={roomMenuContainerRef}
+                                className="fixed w-56 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-20"
+                                style={{ top: roomMenuPosition.top, left: roomMenuPosition.left, visibility: roomMenuPosition.visibility }}
+                            >
+                                {roomInfo?.type === 'group' && (
+                                    <>
+                                        <button
+                                            onClick={() => { setRoomMenuOpen(false); setGroupSettingsInitialView('invite'); setShowGroupSettings(true); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
+                                        >
+                                            <UserPlusIcon className="w-5 h-5 text-surface-500" />
+                                            <span className="text-sm font-medium">招待</span>
+                                        </button>
+                                        <button
+                                            onClick={() => { setRoomMenuOpen(false); setGroupSettingsInitialView('members'); setShowGroupSettings(true); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
+                                        >
+                                            <UserGroupIcon className="w-5 h-5 text-surface-500" />
+                                            <span className="text-sm font-medium">メンバー</span>
+                                        </button>
+                                        <button
+                                            onClick={() => { setRoomMenuOpen(false); setGroupSettingsInitialView('settings'); setShowGroupSettings(true); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
+                                        >
+                                            <Cog6ToothIcon className="w-5 h-5 text-surface-500" />
+                                            <span className="text-sm font-medium">設定</span>
+                                        </button>
+                                    </>
+                                )}
                                 <button
-                                    onClick={() => { setRoomMenuOpen(false); handleHideRoom(); }}
+                                    onClick={() => { setRoomMenuOpen(false); setShowThreadReadManager(true); }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
+                                >
+                                    <SparklesIcon className="w-5 h-5 text-surface-500" />
+                                    <span className="text-sm font-medium whitespace-nowrap">スレッド読取管理</span>
+                                </button>
+                                {roomInfo?.type === 'dm' && (
+                                    <button
+                                        onClick={() => { setRoomMenuOpen(false); setReadStatusSettingsOpen(true); }}
+                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
+                                    >
+                                        <svg className="w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.64 0 8.577 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.64 0-8.577-3.007-9.963-7.178z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                        <span className="text-sm font-medium">既読設定</span>
+                                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${myShowReadStatus ? 'bg-emerald-100 text-emerald-600' : 'bg-surface-200 text-surface-500'}`}>
+                                            {myShowReadStatus ? 'ON' : 'OFF'}
+                                        </span>
+                                    </button>
+                                )}
+                                <div className="border-t border-surface-100 dark:border-surface-700 my-1" />
+                                <button
+                                    onClick={() => { setRoomMenuOpen(false); setConfirmHideRoom(true); }}
                                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
                                 >
                                     <svg className="w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -1423,7 +2194,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             </h3>
                             <p className="text-sm text-surface-500 mb-6">
                                 {roomInfo?.type === 'dm'
-                                    ? 'このトークは非表示になります。新しいメッセージが届くと再表示されます。'
+                                    ? 'このトークを削除すると、あなた側の履歴は消えます（相手には影響しません）。'
                                     : 'グループから退出すると、メッセージ履歴にアクセスできなくなります。'}
                             </p>
                             <div className="flex gap-3">
@@ -1440,6 +2211,81 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                     {roomInfo?.type === 'dm' ? '削除' : '退出'}
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Group Settings Modal */}
+            {showGroupSettings && roomInfo?.group_id && (
+                <ChatGroupSettings
+                    isOpen={showGroupSettings}
+                    onClose={() => setShowGroupSettings(false)}
+                    roomId={roomId}
+                    groupId={roomInfo.group_id!}
+                    userId={userId}
+                    initialView={groupSettingsInitialView}
+                />
+            )}
+
+            {/* Read Status Settings Modal */}
+            {readStatusSettingsOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReadStatusSettingsOpen(false)}>
+                    <div className="w-full max-w-sm bg-white dark:bg-surface-900 rounded-xl shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="p-6">
+                            <h3 className="text-lg font-semibold mb-4">既読設定</h3>
+                            <p className="text-sm text-surface-500 mb-6">
+                                既読をONにすると、あなたがメッセージを読んだことが相手に表示されます。
+                                OFFにすると、相手にはあなたの既読状態が見えなくなります。
+                            </p>
+                            <div className="space-y-3">
+                                <button
+                                    onClick={() => handleToggleReadStatus(true)}
+                                    className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-colors ${myShowReadStatus
+                                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                                        : 'border-surface-200 dark:border-surface-700 hover:bg-surface-50 dark:hover:bg-surface-800'
+                                        }`}
+                                >
+                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${myShowReadStatus ? 'border-primary-500 bg-primary-500' : 'border-surface-300'
+                                        }`}>
+                                        {myShowReadStatus && (
+                                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="font-medium">既読を表示する</p>
+                                        <p className="text-xs text-surface-500">相手に既読が見えます</p>
+                                    </div>
+                                </button>
+                                <button
+                                    onClick={() => handleToggleReadStatus(false)}
+                                    className={`w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-colors ${!myShowReadStatus
+                                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                                        : 'border-surface-200 dark:border-surface-700 hover:bg-surface-50 dark:hover:bg-surface-800'
+                                        }`}
+                                >
+                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${!myShowReadStatus ? 'border-primary-500 bg-primary-500' : 'border-surface-300'
+                                        }`}>
+                                        {!myShowReadStatus && (
+                                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="font-medium">既読を非表示にする</p>
+                                        <p className="text-xs text-surface-500">相手に既読が見えません</p>
+                                    </div>
+                                </button>
+                            </div>
+                            <button
+                                onClick={() => setReadStatusSettingsOpen(false)}
+                                className="w-full mt-4 btn-secondary py-2.5"
+                            >
+                                閉じる
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1477,7 +2323,26 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                 ? messagesRef.current.find((m) => m.id === msg.reply_to_message_id)
                                 : null;
                             const hasAttachments = (msg.attachments || []).length > 0;
+                            const isHighlighted = msg.id === highlightMessageId;
+                            // UI-011: Check if message is image only to remove bubble
+                            const isImageOnly = !msg.content && hasAttachments && (msg.attachments || []).every((att: any) => {
+                                const ext = att.object_path.split('.').pop()?.toLowerCase();
+                                return att.mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '');
+                            });
+                            // UI-011: Remove bubble for shared thread cards
+                            const isSharedCard = msg.kind === 'shared_ai_thread';
+                            const shouldRemoveBubble = isImageOnly || isSharedCard;
                             const sharedCard = msg.sharedCard;
+
+                            if (msg.kind === 'system') {
+                                return (
+                                    <div key={msg.id} className="flex justify-center my-4">
+                                        <div className="bg-surface-100 dark:bg-surface-800 text-surface-500 text-xs px-3 py-1.5 rounded-full shadow-sm">
+                                            {formatGroupLogMessage(msg.content)}
+                                        </div>
+                                    </div>
+                                );
+                            }
 
                             return (
                                 <div
@@ -1520,10 +2385,16 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                             {/* Message Bubble */}
                                             <div
                                                 className={cn(
-                                                    "relative px-3 py-2 shadow-sm text-sm md:text-base break-words",
-                                                    msg.is_mine
-                                                        ? "bg-primary-500 text-white rounded-2xl rounded-tr-sm"
-                                                        : "bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 text-surface-900 dark:text-surface-100 rounded-2xl rounded-tl-sm"
+                                                    "relative text-sm md:text-base break-words",
+                                                    isHighlighted && "ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white dark:ring-offset-surface-900",
+                                                    shouldRemoveBubble
+                                                        ? "p-0 bg-transparent border-none shadow-none"
+                                                        : cn(
+                                                            "px-3 py-2 shadow-sm",
+                                                            msg.is_mine
+                                                                ? "bg-primary-500 text-white rounded-2xl rounded-tr-sm"
+                                                                : "bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 text-surface-900 dark:text-surface-100 rounded-2xl rounded-tl-sm"
+                                                        )
                                                 )}
                                             >
                                                 {replyTarget && (
@@ -1596,6 +2467,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                                 <p className="font-bold text-sm leading-tight text-surface-900 dark:text-surface-100 line-clamp-2">
                                                                     {threadStatus[sharedCard.threadId]?.title || sharedCard.titleSnapshot || '名称未設定のスレッド'}
                                                                 </p>
+                                                                {!threadStatus[sharedCard.threadId]?.exists && (
+                                                                    <p className="text-[12px] text-surface-500 mt-1 line-clamp-2">
+                                                                        このスレッドは削除されました。内容は表示できません。
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         </div>
 
@@ -1604,24 +2480,17 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                             {(() => {
                                                                 const status = threadStatus[sharedCard.threadId];
                                                                 const model = status?.model || sharedCard.modelSnapshot;
-                                                                const provider = (model || '').startsWith('gemini') ? 'google' : 'openai';
-                                                                const myKey = myApiKeys[provider];
                                                                 const ownerKey = status?.ownerHasKey;
-
-                                                                let style = "bg-surface-100 text-surface-500 dark:bg-surface-700 dark:text-surface-400"; // Default Gray
-
-                                                                const emeraldStyle = "bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800";
-
-                                                                if (myKey) {
-                                                                    // 自分のがあれば（相手があろうとなかろうと）「あなたのAPI」状態と同じ色
-                                                                    style = emeraldStyle;
-                                                                } else if (ownerKey) {
-                                                                    // 相手のみ: My keyがない時は同じ色（背景は灰色）で文字だけ緑
-                                                                    style = "bg-surface-100 text-emerald-600 border border-transparent dark:bg-surface-700 dark:text-emerald-400";
-                                                                }
+                                                                const isOwner = status?.owner?.userId === userId;
+                                                                // If we don't know the key status (null/undefined), prefer active styling
+                                                                const modelStyle = ownerKey === false
+                                                                    ? "bg-transparent text-surface-500 border border-surface-300 dark:text-surface-400 dark:border-surface-700"
+                                                                    : isOwner
+                                                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:border-emerald-800"
+                                                                        : "bg-transparent text-emerald-600 border border-surface-200 dark:text-emerald-400 dark:border-surface-700";
 
                                                                 return (
-                                                                    <span className={cn("font-medium px-1.5 py-0.5 rounded transition-colors", style)}>
+                                                                    <span className={cn("font-medium px-1.5 py-0.5 rounded transition-colors", modelStyle)}>
                                                                         {model?.replace('gpt-', 'GPT-').replace('gemini-', 'Gemini ') || 'Unknown'}
                                                                     </span>
                                                                 );
@@ -1640,6 +2509,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                             )}
 
                                                             {(() => {
+                                                                if (isMobile) return null;
                                                                 const owner = threadStatus[sharedCard.threadId]?.owner || {
                                                                     userId: msg.sender_user_id,
                                                                     displayName: msg.sender_name,
@@ -1677,6 +2547,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
+                                                                            void ensureAiThreadViewMember(sharedCard.threadId);
                                                                             router.push(`/ai/${sharedCard.threadId}`);
                                                                         }}
                                                                         className="flex items-center justify-center px-1 py-1.5 rounded-md bg-surface-100 hover:bg-surface-200 dark:bg-surface-800 dark:hover:bg-surface-700 text-xs font-medium text-surface-700 dark:text-surface-300 transition-colors"
@@ -1687,6 +2558,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
+                                                                            void ensureAiThreadViewMember(sharedCard.threadId);
                                                                             addSplitTab(
                                                                                 sharedCard.threadId,
                                                                                 sharedCard.titleSnapshot || 'AIスレッド'
@@ -1700,6 +2572,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
+                                                                            void ensureAiThreadViewMember(sharedCard.threadId);
                                                                             openWindow(sharedCard.threadId);
                                                                         }}
                                                                         className="hidden md:flex items-center justify-center px-1 py-1.5 rounded-md bg-surface-100 hover:bg-surface-200 dark:bg-surface-800 dark:hover:bg-surface-700 text-xs font-medium text-surface-700 dark:text-surface-300 transition-colors"
@@ -1714,7 +2587,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                     <>
                                                         {msg.content && (
                                                             <p className="whitespace-pre-wrap break-words max-w-full">
-                                                                {msg.content}
+                                                                {formatMessageContent(msg.content, msg.is_mine, searchQuery)}
                                                             </p>
                                                         )}
                                                         {hasAttachments && (
@@ -1772,14 +2645,29 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                         )}
                                                     </>
                                                 )}
-                                                <div
-                                                    className={cn(
-                                                        "text-[10px] mt-1 flex justify-end select-none",
-                                                        msg.is_mine ? "text-white/70" : "text-surface-400"
-                                                    )}
-                                                >
-                                                    {formatMessageTime(msg.created_at)}
-                                                </div>
+                                            </div>
+
+                                            {/* Metadata (Time & Read Status) - Outside bubble */}
+                                            <div className="flex flex-col justify-end gap-px text-[10px] text-surface-400 dark:text-surface-500 font-medium whitespace-nowrap self-end mb-0.5 mx-1">
+                                                {/* 既読表示 */}
+                                                {msg.is_mine && roomInfo?.type === 'dm' && otherMemberReadStatus?.showReadStatus && otherMemberReadStatus.lastReadMessageId && (() => {
+                                                    const myMessages = messages.filter(m => m.is_mine);
+                                                    const lastMyMessage = myMessages[myMessages.length - 1];
+                                                    const isLastMyMessage = lastMyMessage?.id === msg.id;
+                                                    const readMsgIndex = messages.findIndex(m => m.id === otherMemberReadStatus.lastReadMessageId);
+                                                    const thisMsgIndex = messages.findIndex(m => m.id === msg.id);
+                                                    const isRead = readMsgIndex >= thisMsgIndex;
+
+                                                    if (isLastMyMessage && isRead) {
+                                                        return (
+                                                            <span className="text-surface-400 dark:text-surface-500">既読</span>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+
+                                                {/* 時間表示 */}
+                                                <span>{formatMessageTime(msg.created_at)}</span>
                                             </div>
 
                                             {/* Action button - beside message, aligned to top */}
@@ -1817,11 +2705,25 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
 
             {/* Thread Picker Modal */}
             {threadPickerOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setThreadPickerOpen(false)}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setThreadPickerOpen(false)}>
                     <div className="w-full max-w-md bg-white dark:bg-surface-900 rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
                         <div className="p-4 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between">
                             <h3 className="font-semibold">AIスレッドを選択</h3>
                             <button onClick={() => setThreadPickerOpen(false)} className="btn-icon">✕</button>
+                        </div>
+                        <div className="p-3 border-b border-surface-200 dark:border-surface-800">
+                            <button
+                                onClick={handleCreateAndSendThread}
+                                disabled={threadPickerCreating}
+                                className="w-full btn-primary py-2 text-sm"
+                            >
+                                新規AIスレッドを作成して共有
+                            </button>
+                            {threadPickerError && (
+                                <p className="mt-2 text-xs text-error-600 dark:text-error-400">
+                                    {threadPickerError}
+                                </p>
+                            )}
                         </div>
                         <div className="flex-1 overflow-y-auto p-2">
                             {availableThreads.length > 0 ? (
@@ -1831,12 +2733,16 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                         onClick={() => handleSendThread(thread)}
                                         className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors text-left"
                                     >
-                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent-400 to-primary-400 flex items-center justify-center flex-shrink-0">
-                                            <SparklesIcon className="w-5 h-5 text-white" />
-                                        </div>
                                         <div className="min-w-0">
                                             <p className="font-medium truncate">{thread.title}</p>
-                                            <p className="text-xs text-surface-500">{thread.model}</p>
+                                            <p className="text-xs text-surface-500">
+                                                {thread.model}
+                                                {thread.created_at && (
+                                                    <span className="ml-2">
+                                                        作成 {new Date(thread.created_at).toLocaleDateString('ja-JP')}
+                                                    </span>
+                                                )}
+                                            </p>
                                         </div>
                                     </button>
                                 ))
@@ -1944,10 +2850,12 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 )}
                 <div className="flex items-center gap-2">
                     <input
+                        id="chat-file-input"
                         ref={fileInputRef}
                         type="file"
+                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
                         multiple
-                        className="hidden"
+                        className="fixed top-0 left-0 w-px h-px opacity-0 overflow-hidden"
                         onChange={handleFilesSelected}
                     />
 
@@ -1956,13 +2864,14 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             <>
                                 <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
                                 <div className="absolute bottom-full left-0 mb-2 w-48 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-20 flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-200">
-                                    <button
+                                    <label
+                                        htmlFor="chat-file-input"
                                         onClick={handleFileOption}
-                                        className="flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
+                                        className="flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left cursor-pointer"
                                     >
                                         <PhotoIcon className="w-5 h-5 text-primary-500" />
                                         <span className="text-sm font-medium">画像・ファイル</span>
-                                    </button>
+                                    </label>
                                     <button
                                         onClick={handleThreadOption}
                                         className="flex items-center gap-3 px-4 py-3 hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors text-left"
@@ -1993,11 +2902,20 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             value={input}
                             onChange={(e) => handleInputChange(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            onFocus={() => { if (isMobile) setTimeout(() => scrollToBottom('auto'), 300); }}
+                            onFocus={() => {
+                                if (isMobile) {
+                                    setTimeout(() => {
+                                        scrollToBottom('auto');
+                                        // Ensure input area is visible (UI-004)
+                                        fileInputRef.current?.parentElement?.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                                    }, 400);
+                                }
+                            }}
                             onBlur={stopTyping}
                             placeholder="メッセージを入力..."
                             rows={1}
                             style={{ minHeight: '38px', height: '38px' }}
+                            data-chat-input="true"
                             className="w-full resize-none rounded-[19px] border border-surface-200/50 dark:border-surface-700/50 bg-white dark:bg-surface-800 px-4 py-[9px] text-sm leading-5 max-h-32 shadow-lg focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 placeholder:text-surface-400 transition-colors"
                         />
                     </div>
@@ -2020,7 +2938,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             {actionMenuMessageId && (
                 <>
                     <div className="fixed inset-0 z-[100]" onClick={() => setActionMenuMessageId(null)} />
-                    <div style={actionMenuStyles} className="fixed w-28 bg-white dark:bg-surface-800 rounded-lg shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-[101] animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div style={actionMenuStyles} className="fixed w-28 bg-white dark:bg-surface-800 rounded-lg shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-[101]">
                         {(() => {
                             const msg = messages.find(m => m.id === actionMenuMessageId);
                             if (!msg) return null;
@@ -2060,6 +2978,71 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 currentName={roomInfo?.name || ''}
                 onSave={handleSaveNickname}
             />
+            {/* スレッド読取管理モーダル */}
+            {showThreadReadManager && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowThreadReadManager(false)}>
+                    <div className="w-full max-w-lg bg-white dark:bg-surface-900 rounded-xl shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-4 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-semibold">スレッド読取管理</h3>
+                                <p className="text-sm text-surface-500">このトークで共有されているスレッドごとに読取を切替えます</p>
+                            </div>
+                            <button className="btn-icon p-2" onClick={() => setShowThreadReadManager(false)} aria-label="閉じる">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="max-h-[60vh] overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
+                            {uniqueSharedThreadIds.length === 0 && (
+                                <div className="p-5 text-sm text-surface-500">共有スレッドはありません</div>
+                            )}
+                            {uniqueSharedThreadIds.map((tid) => {
+                                const status = threadStatus[tid];
+                                const title = status?.title || '名称未設定のスレッド';
+                            const enabled = status?.readEnabled ?? true;
+                            const linkedHere = status?.sourceRoomId ? status.sourceRoomId === roomId : true;
+                            // 読み取られていない、または別トークが読込先なら非表示
+                            if (!enabled || !linkedHere) {
+                                return null;
+                            }
+                            return (
+                                <div key={tid} className="flex items-center gap-3 px-5 py-3">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium truncate">{title}</p>
+                                            <p className="text-xs text-surface-500 flex items-center gap-2 flex-wrap">
+                                                <span className="inline-flex items-center gap-1">
+                                                    <span className="text-surface-400">モデル:</span>
+                                                    <span className="font-medium">{status?.model || '未設定'}</span>
+                                                </span>
+                                                <span className="inline-flex items-center gap-1">
+                                                    <span className="text-surface-400">共有日時:</span>
+                                                    <span className="font-mono">{status?.createdAt ? new Date(status.createdAt).toLocaleDateString('ja-JP') : '-'}</span>
+                                                </span>
+                                                <span className="inline-flex items-center gap-1">
+                                                    <span className="text-surface-400">オーナー:</span>
+                                                    <span className="font-medium">{status?.owner?.displayName || '不明'}</span>
+                                                </span>
+                                                {!linkedHere && (
+                                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-100 dark:bg-surface-800 text-surface-500">別トークを読込先</span>
+                                                )}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleToggleThreadRead(tid, !enabled)}
+                                            className={`px-3 py-1 rounded-full text-xs font-semibold ${enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-200 text-surface-600 dark:bg-surface-700 dark:text-surface-300'}`}
+                                        >
+                                            {enabled ? '読ませる' : '読まない'}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+
+export default ChatRoom;

@@ -55,7 +55,7 @@ export function EditNicknameDialog({ isOpen, onClose, currentName, onSave }: Edi
                     leaveFrom="opacity-100"
                     leaveTo="opacity-0"
                 >
-                    <div className="fixed inset-0 bg-black/25 backdrop-blur-sm" />
+                    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
                 </Transition.Child>
 
                 <div className="fixed inset-0 overflow-y-auto">
@@ -77,7 +77,9 @@ export function EditNicknameDialog({ isOpen, onClose, currentName, onSave }: Edi
                                     表示名の変更
                                 </Dialog.Title>
                                 <div className="mt-2">
-
+                                    <p className="text-sm text-surface-500 mb-4 hidden">
+                                        変更した名前は自分のLINE上でのみ表示され、相手に通知されることはありません。
+                                    </p>
                                     <form onSubmit={handleSubmit} className="space-y-4">
                                         <div>
                                             <input
