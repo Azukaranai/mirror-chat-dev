@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -8,7 +8,7 @@ import { CHAT_CONTEXT_PREFIX } from '@/lib/utils';
 import { createSharedAIThreadCard, cn, getStorageUrl, getInitials } from '@/lib/utils';
 import { useAIStore, useSplitStore } from '@/lib/stores';
 import type { AIThread } from '@/types/database';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 // Icons
@@ -107,7 +107,7 @@ const shouldBlockAiThreadLink = (href?: string) => {
     return false;
 };
 
-const MarkdownLink = ({ href, children }: { href?: string; children: ReactNode }) => {
+const MarkdownLink: Components['a'] = ({ href, children }) => {
     if (!href) return <>{children}</>;
     const block = shouldBlockAiThreadLink(href);
 
@@ -127,7 +127,7 @@ const MarkdownLink = ({ href, children }: { href?: string; children: ReactNode }
     );
 };
 
-const markdownComponents = { a: MarkdownLink };
+const markdownComponents = { a: MarkdownLink } satisfies Components;
 
 const KeyIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -430,6 +430,14 @@ export function AIThreadView({
         [userId]
     );
 
+    const getAccessTokenOrThrow = useCallback(async () => {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        const token = data.session?.access_token;
+        if (!token) throw new Error('Missing access token');
+        return token;
+    }, [supabase]);
+
     const kickQueue = useCallback(async () => {
         const now = Date.now();
         if (now - queueKickRef.current < 1500) return;
@@ -652,7 +660,8 @@ export function AIThreadView({
                 .select('display_name')
                 .eq('user_id', userId)
                 .maybeSingle();
-            if (data?.display_name) setCurrentUserDisplayName(data.display_name);
+            const profile = data as { display_name?: string } | null;
+            if (profile?.display_name) setCurrentUserDisplayName(profile.display_name);
         };
         loadMe();
     }, [supabase, userId]);
@@ -1343,8 +1352,8 @@ export function AIThreadView({
         }
 
         // Set default read target to this room when shared from thread view
-        await supabase
-            .from('ai_threads')
+        await (supabase
+            .from('ai_threads') as any)
             .update({ source_room_id: roomId, read_enabled: true })
             .eq('id', threadId)
             .is('source_room_id', null);
@@ -1434,8 +1443,9 @@ export function AIThreadView({
             .eq('addressee_id', targetUserId)
             .maybeSingle();
 
-        if (requesterRow?.requester_nickname) {
-            return requesterRow.requester_nickname;
+        const requester = requesterRow as { requester_nickname?: string | null } | null;
+        if (requester?.requester_nickname) {
+            return requester.requester_nickname;
         }
 
         const { data: addresseeRow } = await supabase
@@ -1445,8 +1455,9 @@ export function AIThreadView({
             .eq('requester_id', targetUserId)
             .maybeSingle();
 
-        if (addresseeRow?.addressee_nickname) {
-            return addresseeRow.addressee_nickname;
+        const addressee = addresseeRow as { addressee_nickname?: string | null } | null;
+        if (addressee?.addressee_nickname) {
+            return addressee.addressee_nickname;
         }
 
         const { data: profile } = await supabase
@@ -1455,7 +1466,8 @@ export function AIThreadView({
             .eq('user_id', targetUserId)
             .maybeSingle();
 
-        return profile?.display_name || 'Unknown';
+        const resolvedProfile = profile as { display_name?: string | null } | null;
+        return resolvedProfile?.display_name || 'Unknown';
     };
 
     const discardPendingQueue = async (targetUserId: string) => {
@@ -1618,8 +1630,8 @@ export function AIThreadView({
             if (readRooms.length > 0 && !readRooms.some((r) => r.id === roomId)) return;
             const prevRoomId = sourceRoomId || (thread as any)?.source_room_id || null;
             try {
-                await supabase
-                    .from('ai_threads')
+                await (supabase
+                    .from('ai_threads') as any)
                     .update({ source_room_id: roomId, read_enabled: readEnabled ?? true })
                     .eq('id', threadId);
                 setSourceRoomId(roomId);
@@ -1653,10 +1665,11 @@ export function AIThreadView({
                     .select('source_room_id, read_enabled')
                     .eq('id', threadId)
                     .single();
-                if (data) {
-                    setSourceRoomId((data as any).source_room_id ?? prevRoomId);
-                    setReadEnabled((data as any).read_enabled ?? readEnabled);
-                    setThread((prev: any) => prev ? { ...prev, ...data } : prev);
+                const threadData = data as { source_room_id?: string | null; read_enabled?: boolean } | null;
+                if (threadData) {
+                    setSourceRoomId(threadData.source_room_id ?? prevRoomId);
+                    setReadEnabled(threadData.read_enabled ?? readEnabled);
+                    setThread((prev: any) => prev ? { ...prev, ...threadData } : prev);
                 }
             }
         },
@@ -1679,8 +1692,8 @@ export function AIThreadView({
             setReadEnabled(next);
             setReadToggleLoading(true);
             try {
-                await supabase
-                    .from('ai_threads')
+                await (supabase
+                    .from('ai_threads') as any)
                     .update({
                         read_enabled: next,
                         ...(targetRoom ? { source_room_id: targetRoom } : {}),
@@ -1709,10 +1722,11 @@ export function AIThreadView({
                     .select('read_enabled, source_room_id')
                     .eq('id', threadId)
                     .single();
-                if (data) {
-                    setReadEnabled((data as any).read_enabled ?? prevEnabled);
-                    setSourceRoomId((data as any).source_room_id ?? prevSource);
-                    setThread((prev: any) => prev ? { ...prev, ...data } : prev);
+                const threadData = data as { source_room_id?: string | null; read_enabled?: boolean } | null;
+                if (threadData) {
+                    setReadEnabled(threadData.read_enabled ?? prevEnabled);
+                    setSourceRoomId(threadData.source_room_id ?? prevSource);
+                    setThread((prev: any) => prev ? { ...prev, ...threadData } : prev);
                 }
             } finally {
                 setReadToggleLoading(false);

@@ -36,6 +36,8 @@ export interface Friendship {
     requester_id: string;
     addressee_id: string;
     status: FriendshipStatus;
+    requester_nickname: string | null;
+    addressee_nickname: string | null;
     created_at: string;
 }
 
@@ -105,6 +107,8 @@ export interface AIThread {
     title: string;
     system_prompt: string | null;
     model: string;
+    source_room_id: string | null;
+    read_enabled: boolean;
     archived_at: string | null;
     created_at: string;
     updated_at: string;
@@ -213,8 +217,11 @@ export interface Database {
             };
             friendships: {
                 Row: Friendship;
-                Insert: Omit<Friendship, 'id' | 'created_at'>;
-                Update: Partial<Pick<Friendship, 'status'>>;
+                Insert: Omit<Friendship, 'id' | 'created_at' | 'requester_nickname' | 'addressee_nickname'> & {
+                    requester_nickname?: string | null;
+                    addressee_nickname?: string | null;
+                };
+                Update: Partial<Pick<Friendship, 'status' | 'requester_nickname' | 'addressee_nickname'>>;
                 Relationships: [];
             };
             groups: {
@@ -261,8 +268,13 @@ export interface Database {
             };
             ai_threads: {
                 Row: AIThread;
-                Insert: Omit<AIThread, 'id' | 'created_at' | 'updated_at' | 'archived_at'>;
-                Update: Partial<Pick<AIThread, 'title' | 'system_prompt' | 'model' | 'archived_at'>>;
+                Insert: Omit<AIThread, 'id' | 'created_at' | 'updated_at' | 'archived_at' | 'source_room_id' | 'read_enabled'> & {
+                    source_room_id?: string | null;
+                    read_enabled?: boolean;
+                };
+                Update: Partial<
+                    Pick<AIThread, 'title' | 'system_prompt' | 'model' | 'archived_at' | 'source_room_id' | 'read_enabled'>
+                >;
                 Relationships: [];
             };
             ai_thread_members: {

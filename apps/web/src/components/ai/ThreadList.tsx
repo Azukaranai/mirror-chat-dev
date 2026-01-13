@@ -332,9 +332,9 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
 
         setBusyThreadId(thread.id);
         try {
-            const { error } = await supabase
-                .from('ai_threads')
-                .update({ title: trimmed } as any)
+            const { error } = await (supabase
+                .from('ai_threads') as any)
+                .update({ title: trimmed })
                 .eq('id', thread.id);
 
             if (error) {
