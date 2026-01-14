@@ -127,6 +127,25 @@
 
 ## 運用マニュアル（手動操作）
 
+### 0. メール認証（本番運用チェック）
+**目的**: 確認メールのURLが有効で、確認完了後にのみ登録が完了する状態を保証する。
+
+- Supabase Dashboard → Authentication → URL Configuration
+  - **Site URL**: `https://mirror-chat.pages.dev`
+  - **Redirect URLs**:
+    - `https://mirror-chat.pages.dev/auth/callback`
+    - `http://localhost:3000/auth/callback`
+- Supabase Dashboard → Authentication → Email
+  - **Confirm sign up**: ON（確認必須）
+  - **Email Templates**: 確認リンクが `{{ .SiteURL }}` を参照していることを確認
+- Supabase Dashboard → Authentication → SMTP Settings
+  - 本番はカスタムSMTP推奨（送信元/到達率の安定化）
+- 事前チェック
+  - 登録直後に **確認メールが届く** こと
+  - メール内リンクが **正しいドメイン** を指すこと
+  - 確認完了後に **ログインできる** こと（未確認は弾かれる）
+  - **JWT/セッション期限** が短すぎないこと（Auth → Sessions）
+
 ### 1. 開発サーバーの起動（ローカルで確認）
 ```bash
 # アプリのディレクトリへ移動

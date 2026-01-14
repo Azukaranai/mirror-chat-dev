@@ -12,7 +12,7 @@ export default function RegisterPage() {
     const [displayName, setDisplayName] = useState('');
     const [handle, setHandle] = useState('');
     const [error, setError] = useState<string | null>(null);
-    const [notice, setNotice] = useState<string | null>(null);
+    const [submitLocked, setSubmitLocked] = useState(false);
     const [loading, setLoading] = useState(false);
     const router = useRouter();
     const supabase = useMemo(() => createClient(), []);
@@ -20,7 +20,6 @@ export default function RegisterPage() {
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
-        setNotice(null);
 
         if (loading) return;
 
@@ -46,6 +45,7 @@ export default function RegisterPage() {
         }
 
         setLoading(true);
+        setSubmitLocked(true);
 
         try {
             const normalizedEmail = email.trim().toLowerCase();
@@ -78,7 +78,16 @@ export default function RegisterPage() {
             }
 
             if (!data.session) {
-                setNotice('確認メールを送信しました。メールを確認して登録を完了してください。');
+                const { error: signInError } = await supabase.auth.signInWithPassword({
+                    email: normalizedEmail,
+                    password,
+                });
+                if (signInError) {
+                    setError(signInError.message);
+                    return;
+                }
+                router.push('/talk');
+                router.refresh();
             } else {
                 router.push('/talk');
                 router.refresh();
@@ -202,15 +211,9 @@ export default function RegisterPage() {
                         {error}
                     </div>
                 )}
-                {notice && (
-                    <div className="p-3 rounded-lg bg-success-500/10 text-success-600 dark:text-success-400 text-sm">
-                        {notice}
-                    </div>
-                )}
-
                 <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || submitLocked}
                     className="btn-primary w-full py-3"
                 >
                     {loading ? (
@@ -234,7 +237,7 @@ export default function RegisterPage() {
                             登録中...
                         </span>
                     ) : (
-                        'アカウント作成'
+                        submitLocked ? '登録済み' : 'アカウント作成'
                     )}
                 </button>
             </form>

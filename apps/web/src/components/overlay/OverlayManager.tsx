@@ -256,6 +256,10 @@ function OverlayWindowComponent({ window }: OverlayWindowComponentProps) {
                     <path d="M22 22H20V20H22V22ZM22 18H20V16H22V18ZM18 22H16V20H18V22ZM22 14H20V12H22V14ZM18 18H16V16H18V18ZM14 22H12V20H14V22Z" />
                 </svg>
             </div>
+            <div className="resize-handle absolute top-0 left-4 right-4 h-2 cursor-n-resize z-40 hover:bg-primary-500/10" onMouseDown={startResize('n')} />
+            <div className="resize-handle absolute bottom-0 left-4 right-4 h-2 cursor-s-resize z-40 hover:bg-primary-500/10" onMouseDown={startResize('s')} />
+            <div className="resize-handle absolute left-0 top-4 bottom-4 w-2 cursor-w-resize z-40 hover:bg-primary-500/10" onMouseDown={startResize('w')} />
+            <div className="resize-handle absolute right-0 top-4 bottom-4 w-2 cursor-e-resize z-40 hover:bg-primary-500/10" onMouseDown={startResize('e')} />
         </div>
     );
 }

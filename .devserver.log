@@ -1,0 +1,429 @@
+
+> mirror-chat@0.2.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1202ms
+ ✓ Compiled /src/middleware in 271ms (123 modules)
+ ○ Compiling /talk/[roomId] ...
+(node:40223) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ Compiled /talk/[roomId] in 3.9s (1933 modules)
+ ○ Compiling /ai .[?25h
+ Compiled /ai in 732ms (1940 modules)
+ ✓ Compiled /ai/[threadId] in 333ms (1933 modules)
+ ✓ Compiled /settings in 501ms (1944 modules)
+ ✓ Compiled /talk in 310ms (1952 modules)
+ GET /talk/675d2835-bb90-483b-a627-e9d1646c5b47 200 in 184ms
+ GET /talk/675d2835-bb90-483b-a627-e9d1646c5b47 200 in 37ms
+ ⚠ Cross origin request detected from 192.168.0.33 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ ✓ Compiled /_not-found in 447ms (1941 modules)
+ ✓ Compiled /ai/[threadId] in 159ms (1135 modules)
+ ○ Compiling /ai ...
+ ✓ Compiled /ai in 748ms (1138 modules)
+ ✓ Compiled /talk in 211ms (1144 modules)
+ ✓ Compiled in 1346ms (1960 modules)
+ ✓ Compiled in 736ms (1960 modules)
+ GET /talk/675d2835-bb90-483b-a627-e9d1646c5b47 200 in 188ms
+ ✓ Compiled /_not-found in 442ms (1135 modules)
+ ✓ Compiled in 894ms (1951 modules)
+ ✓ Compiled in 1205ms (1948 modules)
+ GET /talk/675d2835-bb90-483b-a627-e9d1646c5b47 200 in 389ms
+ ✓ Compiled in 2.9s (1948 modules)
+ ✓ Compiled in 2.1s (1948 modules)
+ ✓ Compiled in 1765ms (1948 modules)
+ ✓ Compiled in 811ms (1948 modules)
+ ✓ Compiled in 850ms (1948 modules)
+ ✓ Compiled in 895ms (1948 modules)
+ ✓ Compiled in 808ms (1948 modules)
+ ✓ Compiled in 994ms (1948 modules)
+ ✓ Compiled in 804ms (1948 modules)
+ ✓ Compiled in 678ms (1948 modules)
+ ✓ Compiled in 840ms (1948 modules)
+ ✓ Compiled in 901ms (1948 modules)
+ ✓ Compiled in 886ms (1948 modules)
+ ✓ Compiled in 1359ms (1948 modules)
+ ✓ Compiled in 934ms (1948 modules)
+ ✓ Compiled in 704ms (1948 modules)
+ ✓ Compiled in 819ms (1948 modules)
+ ✓ Compiled in 1140ms (1948 modules)
+ ✓ Compiled in 745ms (1948 modules)
+ ✓ Compiled in 754ms (1948 modules)
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ ○ Compiling /talk ...
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ GET /talk 500 in 29ms
+ GET /talk 500 in 40ms
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ ⨯ ./src/components/chat/ChatRoom.tsx
+Error: 
+  [31mx[0m Unexpected token `div`. Expected jsx identifier
+      ,-[[36;1;4m/Users/tadamichikimura/mirror-chat-dev/apps/web/src/components/chat/ChatRoom.tsx[0m:1873:1]
+ [2m1873[0m |     // ローディング時もヘッダーを表示するため、早期リターンではなくコンテンツ内でオーバーレイ表示
+ [2m1874[0m | 
+ [2m1875[0m |     return (
+ [2m1876[0m |         <div
+      : [31;1m         ^^^[0m
+ [2m1877[0m |             className="flex flex-col h-full bg-surface-50 dark:bg-black/20 relative"
+ [2m1878[0m |             onClick={() => setAttachMenuOpen(false)}
+ [2m1879[0m |             onDragEnter={handleDragEnter}
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/chat/ChatRoom.tsx
+./src/components/chat/ChatSplitLayout.tsx
+./src/app/(main)/talk/[roomId]/page.tsx
+ GET /talk 500 in 405ms
+ GET /talk 500 in 29ms
+ GET /talk 500 in 31ms
+ ✓ Compiled /talk in 2.2s (2134 modules)
+ ✓ Compiled /_not-found in 246ms (1135 modules)
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ✓ Compiled /talk in 296ms (1141 modules)
+ GET /talk 200 in 611ms
+ GET /talk/675d2835-bb90-483b-a627-e9d1646c5b47 200 in 220ms
+ ○ Compiling /profile ...
+ ✓ Compiled /profile in 935ms (2206 modules)
+ ⨯ Error: ENOENT: no such file or directory, open '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/src/middleware.js'
+    at readFileSync (node:fs:441:20)
+    at evaluateInContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/context.js:396:50)
+    at getRuntimeContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:72:9)
+    at async runWithTaggedErrors (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:78:21)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:1068:24)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:268:28)
+    at async NextNodeServer.handleCatchallMiddlewareRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:322:26)
+    at async DevServer.handleRequestImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/base-server.js:824:28)
+    at async (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:339:20)
+    at async Span.traceAsyncFn (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async handleRoute (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:313:33)
+    at async resolveRoutes (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:552:28)
+    at async handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:219:96)
+    at async requestHandlerImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js:141:13)
+ ⨯ Error: Cannot find module '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/pages/_document.js'
+Require stack:
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js
+    at Function.<anonymous> (node:internal/modules/cjs/loader:1249:15)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:55:36
+    at Function._load (node:internal/modules/cjs/loader:1075:27)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1340:12)
+    at mod.require (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:138:16)
+    at requirePage (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js:109:84)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:72:65
+    at async Promise.all (index 0)
+    at async loadComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:71:33)
+    at async DevServer.findPageComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:714:36) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ✓ Compiled /_not-found in 295ms (1213 modules)
+ ⨯ Error: ENOENT: no such file or directory, open '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/src/middleware.js'
+    at readFileSync (node:fs:441:20)
+    at evaluateInContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/context.js:396:50)
+    at getRuntimeContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:72:9)
+    at async runWithTaggedErrors (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:78:21)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:1068:24)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:268:28)
+    at async NextNodeServer.handleCatchallMiddlewareRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:322:26)
+    at async DevServer.handleRequestImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/base-server.js:824:28)
+    at async (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:339:20)
+    at async Span.traceAsyncFn (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async handleRoute (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:313:33)
+    at async resolveRoutes (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:552:28)
+    at async handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:219:96)
+    at async requestHandlerImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js:141:13)
+ ⨯ Error: Cannot find module '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/pages/_document.js'
+Require stack:
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js
+    at Function.<anonymous> (node:internal/modules/cjs/loader:1249:15)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:55:36
+    at Function._load (node:internal/modules/cjs/loader:1075:27)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1340:12)
+    at mod.require (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:138:16)
+    at requirePage (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js:109:84)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:72:65
+    at async Promise.all (index 0)
+    at async loadComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:71:33)
+    at async DevServer.findPageComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:714:36) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ GET /profile 404 in 1ms
+ ⨯ Error: ENOENT: no such file or directory, open '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/src/middleware.js'
+    at readFileSync (node:fs:441:20)
+    at evaluateInContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/context.js:396:50)
+    at getRuntimeContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:72:9)
+    at async runWithTaggedErrors (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:78:21)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:1068:24)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:268:28)
+    at async NextNodeServer.handleCatchallMiddlewareRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:322:26)
+    at async DevServer.handleRequestImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/base-server.js:824:28)
+    at async (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:339:20)
+    at async Span.traceAsyncFn (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async handleRoute (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:313:33)
+    at async resolveRoutes (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:552:28)
+    at async handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:219:96)
+    at async requestHandlerImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js:141:13)
+ ⨯ Error: Cannot find module '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/pages/_document.js'
+Require stack:
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js
+    at Function.<anonymous> (node:internal/modules/cjs/loader:1249:15)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:55:36
+    at Function._load (node:internal/modules/cjs/loader:1075:27)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1340:12)
+    at mod.require (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:138:16)
+    at requirePage (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js:109:84)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:72:65
+    at async Promise.all (index 0)
+    at async loadComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:71:33)
+    at async DevServer.findPageComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:714:36) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ GET /profile 404 in 3ms
+ ⨯ Error: ENOENT: no such file or directory, open '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/src/middleware.js'
+    at readFileSync (node:fs:441:20)
+    at evaluateInContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/context.js:396:50)
+    at getRuntimeContext (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:72:9)
+    at async runWithTaggedErrors (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/web/sandbox/sandbox.js:78:21)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:1068:24)
+    at async DevServer.runMiddleware (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:268:28)
+    at async NextNodeServer.handleCatchallMiddlewareRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:322:26)
+    at async DevServer.handleRequestImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/base-server.js:824:28)
+    at async (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:339:20)
+    at async Span.traceAsyncFn (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async handleRoute (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:313:33)
+    at async resolveRoutes (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/resolve-routes.js:552:28)
+    at async handleRequest (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:219:96)
+    at async requestHandlerImpl (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (file:///Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js:141:13)
+ ⨯ Error: Cannot find module '/Users/tadamichikimura/mirror-chat-dev/apps/web/.next/server/pages/_document.js'
+Require stack:
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js
+- /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js
+    at Function.<anonymous> (node:internal/modules/cjs/loader:1249:15)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:55:36
+    at Function._load (node:internal/modules/cjs/loader:1075:27)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1340:12)
+    at mod.require (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:138:16)
+    at requirePage (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js:109:84)
+    at /Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:72:65
+    at async Promise.all (index 0)
+    at async loadComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js:71:33)
+    at async DevServer.findPageComponentsImpl (/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/next-server.js:714:36) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/require.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/load-components.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/build/utils.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/tadamichikimura/mirror-chat-dev/apps/web/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ GET /profile 404 in 4ms

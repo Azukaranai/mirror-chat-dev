@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -200,6 +201,10 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const [currentUserName, setCurrentUserName] = useState<string | null>(null);
     const [actionMenuMessageId, setActionMenuMessageId] = useState<string | null>(null);
     const [actionMenuStyles, setActionMenuStyles] = useState<React.CSSProperties>({});
+    const actionMenuContainerRef = useRef<HTMLDivElement | null>(null);
+    const actionMenuAnchorRef = useRef<DOMRect | null>(null);
+    const actionMenuAlignRef = useRef<'left' | 'right'>('left');
+    const [portalReady, setPortalReady] = useState(false);
     const [roomMenuOpen, setRoomMenuOpen] = useState(false);
     const [roomMenuPosition, setRoomMenuPosition] = useState<{ top: number; left: number; visibility?: 'hidden' | 'visible' }>({
         top: 0,
@@ -242,6 +247,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const channelRef = useRef<any>(null);
+    const threadLogChannelsRef = useRef<Record<string, any>>({});
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastTypingSentRef = useRef(0);
     const messagesRef = useRef<Message[]>([]);
@@ -253,6 +259,10 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
     useEffect(() => {
         threadStatusRef.current = threadStatus;
     }, [threadStatus]);
+
+    useEffect(() => {
+        setPortalReady(true);
+    }, []);
 
     const getLatestSharedThreadCard = useCallback(() => {
         for (let i = messagesRef.current.length - 1; i >= 0; i -= 1) {
@@ -451,8 +461,18 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         lastReadAt: string | null;
         showReadStatus: boolean;
     } | null>(null);
+    const [groupReadStatuses, setGroupReadStatuses] = useState<Array<{
+        user_id: string;
+        last_read_message_id: string | null;
+        last_read_at: string | null;
+        show_read_status: boolean;
+        display_name: string;
+        handle: string | null;
+        avatar_path: string | null;
+    }>>([]);
     const [myShowReadStatus, setMyShowReadStatus] = useState(true);
     const [readStatusSettingsOpen, setReadStatusSettingsOpen] = useState(false);
+    const [readListMessageId, setReadListMessageId] = useState<string | null>(null);
 
     // Initialize Supabase client on mount
     useEffect(() => {
@@ -739,6 +759,30 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         sendTyping(false);
     }, [sendTyping]);
 
+    const messageIndexMap = useMemo(() => {
+        const map = new Map<string, number>();
+        messages.forEach((msg, index) => {
+            map.set(msg.id, index);
+        });
+        return map;
+    }, [messages]);
+
+    const getGroupReadersForMessage = useCallback(
+        (messageId: string) => {
+            const messageIndex = messageIndexMap.get(messageId);
+            if (messageIndex === undefined) return [];
+            return groupReadStatuses.filter((member) => {
+                if (!member.show_read_status) return false;
+                if (member.user_id === userId) return false;
+                if (!member.last_read_message_id) return false;
+                const readIndex = messageIndexMap.get(member.last_read_message_id);
+                if (readIndex === undefined) return false;
+                return readIndex >= messageIndex;
+            });
+        },
+        [groupReadStatuses, messageIndexMap, userId]
+    );
+
     // Fetch room info and messages
     useEffect(() => {
         if (!supabase) return;
@@ -855,6 +899,46 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 if (group) {
                     name = (group as any).name;
                     avatarPath = (group as any).avatar_path;
+                }
+                setRoomInfo({
+                    name,
+                    avatar_path: avatarPath,
+                    type: (room as any).type,
+                    group_id: (room as any).group_id,
+                });
+
+                const { data: members } = await supabase
+                    .from('room_members')
+                    .select('user_id, last_read_message_id, last_read_at, show_read_status')
+                    .eq('room_id', roomId);
+
+                if (members && members.length > 0) {
+                    const memberIds = members.map((m: any) => m.user_id).filter(Boolean);
+                    const { data: profiles } = await supabase
+                        .from('profiles')
+                        .select('user_id, display_name, handle, avatar_path')
+                        .in('user_id', memberIds);
+
+                    const profileMap = new Map<string, any>();
+                    (profiles || []).forEach((profile: any) => {
+                        profileMap.set(profile.user_id, profile);
+                    });
+
+                    setGroupReadStatuses(
+                        members.map((member: any) => {
+                            const profile = profileMap.get(member.user_id);
+                            const displayName = profile?.display_name || profile?.handle || 'Unknown';
+                            return {
+                                user_id: member.user_id,
+                                last_read_message_id: member.last_read_message_id || null,
+                                last_read_at: member.last_read_at || null,
+                                show_read_status: member.show_read_status ?? true,
+                                display_name: displayName,
+                                handle: profile?.handle || null,
+                                avatar_path: profile?.avatar_path || null,
+                            };
+                        })
+                    );
                 }
             }
 
@@ -1124,11 +1208,27 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             (payload: any) => {
                 const updated = payload.new as any;
                 // 相手の既読状態が更新された場合
-                if (updated.user_id !== userId) {
+                if (updated.user_id !== userId && roomInfo?.type === 'dm') {
                     setOtherMemberReadStatus({
                         lastReadMessageId: updated.last_read_message_id || null,
                         lastReadAt: updated.last_read_at || null,
                         showReadStatus: updated.show_read_status ?? true,
+                    });
+                }
+                if (roomInfo?.type === 'group') {
+                    setGroupReadStatuses((prev) => {
+                        const existing = prev.find((member) => member.user_id === updated.user_id);
+                        if (!existing) return prev;
+                        return prev.map((member) =>
+                            member.user_id === updated.user_id
+                                ? {
+                                    ...member,
+                                    last_read_message_id: updated.last_read_message_id || null,
+                                    last_read_at: updated.last_read_at || null,
+                                    show_read_status: updated.show_read_status ?? true,
+                                }
+                                : member
+                        );
                     });
                 }
                 // 自分の設定が更新された場合（別タブなどから）
@@ -1147,7 +1247,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             channelRef.current = null;
             setTypingUsers(roomId, []);
         };
-    }, [supabase, roomId, userId, addTypingUser, removeTypingUser, setTypingUsers, fetchNotifications, resolveCustomName]);
+    }, [supabase, roomId, userId, addTypingUser, removeTypingUser, setTypingUsers, fetchNotifications, resolveCustomName, roomInfo?.type]);
 
     // Listen for new message signals from RoomList (via ChatStore)
     const newMessageSignal = useChatStore((state) => state.newMessageSignal);
@@ -1249,25 +1349,68 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             const anchor = roomMenuAnchorRef.current!;
             const menuRect = roomMenuContainerRef.current!.getBoundingClientRect();
             const margin = 8;
+            const viewport = window.visualViewport;
+            const viewportWidth = viewport?.width ?? window.innerWidth;
+            const viewportHeight = viewport?.height ?? window.innerHeight;
+            const viewportLeft = viewport?.offsetLeft ?? 0;
+            const viewportTop = viewport?.offsetTop ?? 0;
 
             let left = anchor.right - menuRect.width;
             let top = anchor.bottom + 8;
 
-            if (left < margin) left = margin;
-            if (left + menuRect.width > window.innerWidth - margin) {
-                left = window.innerWidth - menuRect.width - margin;
+            if (left < viewportLeft + margin) left = viewportLeft + margin;
+            if (left + menuRect.width > viewportLeft + viewportWidth - margin) {
+                left = viewportLeft + viewportWidth - menuRect.width - margin;
             }
 
-            if (top + menuRect.height > window.innerHeight - margin) {
+            if (top + menuRect.height > viewportTop + viewportHeight - margin) {
                 top = anchor.top - menuRect.height - 8;
             }
-            if (top < margin) top = margin;
+            if (top < viewportTop + margin) top = viewportTop + margin;
 
             setRoomMenuPosition({ top, left, visibility: 'visible' });
         });
 
         return () => cancelAnimationFrame(frame);
     }, [roomMenuOpen]);
+
+    useEffect(() => {
+        if (!actionMenuMessageId || !actionMenuContainerRef.current || !actionMenuAnchorRef.current) return;
+        const frame = requestAnimationFrame(() => {
+            const anchor = actionMenuAnchorRef.current!;
+            const menuRect = actionMenuContainerRef.current!.getBoundingClientRect();
+            const margin = 8;
+            const viewport = window.visualViewport;
+            const viewportWidth = viewport?.width ?? window.innerWidth;
+            const viewportHeight = viewport?.height ?? window.innerHeight;
+            const viewportLeft = viewport?.offsetLeft ?? 0;
+            const viewportTop = viewport?.offsetTop ?? 0;
+
+            let left = actionMenuAlignRef.current === 'right'
+                ? anchor.right - menuRect.width
+                : anchor.left;
+            let top = anchor.bottom + 4;
+
+            if (left < viewportLeft + margin) left = viewportLeft + margin;
+            if (left + menuRect.width > viewportLeft + viewportWidth - margin) {
+                left = viewportLeft + viewportWidth - menuRect.width - margin;
+            }
+
+            if (top + menuRect.height > viewportTop + viewportHeight - margin) {
+                top = anchor.top - menuRect.height - 8;
+            }
+            if (top < viewportTop + margin) top = viewportTop + margin;
+
+            setActionMenuStyles({
+                position: 'fixed',
+                top: `${top}px`,
+                left: `${left}px`,
+                visibility: 'visible',
+            });
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [actionMenuMessageId]);
 
     // Scroll to bottom on new messages
     useEffect(() => {
@@ -1583,7 +1726,11 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             setReplyTo(replySnapshot);
         } finally {
             setSending(false);
-            inputRef.current?.focus();
+            if (isMobile) {
+                inputRef.current?.blur();
+            } else {
+                inputRef.current?.focus();
+            }
         }
     };
 
@@ -1773,6 +1920,34 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         fetchThreadsForPicker();
     };
 
+    const getThreadLogChannel = useCallback(
+        (threadId: string) => {
+            if (!threadLogChannelsRef.current[threadId]) {
+                const channel = supabase.channel(`ai_thread_log_${threadId}`);
+                channel.subscribe();
+                threadLogChannelsRef.current[threadId] = channel;
+            }
+            return threadLogChannelsRef.current[threadId];
+        },
+        [supabase]
+    );
+
+    const broadcastThreadLog = useCallback(
+        (threadId: string, payload: any) => {
+            try {
+                const channel = getThreadLogChannel(threadId);
+                channel.send({
+                    type: 'broadcast',
+                    event: 'system_log',
+                    payload,
+                });
+            } catch (e) {
+                console.warn('Failed to broadcast thread log', e);
+            }
+        },
+        [getThreadLogChannel]
+    );
+
     const uniqueSharedThreadIds = useMemo(() => {
         const ids = messages
             .filter((m) => m.kind === 'shared_ai_thread' && m.sharedCard?.threadId)
@@ -1780,17 +1955,27 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
         return Array.from(new Set(ids));
     }, [messages]);
 
+    useEffect(() => {
+        return () => {
+            Object.values(threadLogChannelsRef.current).forEach((channel) => {
+                supabase.removeChannel(channel);
+            });
+            threadLogChannelsRef.current = {};
+        };
+    }, [supabase]);
+
     const handleToggleThreadRead = async (threadId: string, nextEnabled: boolean) => {
         if (!supabase) return;
         try {
-            await supabase
-                .from('ai_threads')
+            const { error: updateError } = await (supabase
+                .from('ai_threads') as any)
                 .update({
                     read_enabled: nextEnabled,
                     // 読み取りを有効にする場合はこのトークを読込先としてセット
                     source_room_id: nextEnabled ? roomId : null,
-                } as any)
+                })
                 .eq('id', threadId);
+            if (updateError) throw updateError;
 
             // ローカル状態も即時反映してボタン表示を安定化
             setThreadStatus((prev) => ({
@@ -1803,6 +1988,7 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             }));
 
             const title = threadStatus[threadId]?.title || 'AIスレッド';
+            const prevSourceRoomId = threadStatus[threadId]?.sourceRoomId || null;
             // ログをトーク側に記録（best effort）
             await supabase.from('messages').insert({
                 room_id: roomId,
@@ -1810,6 +1996,26 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                 kind: 'system',
                 content: `${currentUserName || 'ユーザ'}がスレッド「${title}」の読取を${nextEnabled ? 'オン' : 'オフ'}にしました`,
             } as any);
+
+            const roomName = roomInfo?.name || 'トーク';
+            const { data: readLog, error: readLogError } = await supabase
+                .from('ai_messages')
+                .insert({
+                    thread_id: threadId,
+                    role: 'system',
+                    sender_user_id: userId,
+                    sender_kind: 'system',
+                    content: `${currentUserName || 'ユーザ'}が${roomName}の読取を${nextEnabled ? 'オン' : 'オフ'}にしました`,
+                } as any)
+                .select('id, thread_id, role, sender_user_id, sender_kind, content, created_at')
+                .single();
+            if (readLogError) {
+                console.error('Failed to write thread read log', readLogError);
+            } else if (readLog) {
+                broadcastThreadLog(threadId, readLog);
+            }
+
+            // 読込先変更ログはトーク側操作時には出さず、オン/オフログのみ表示する
         } catch (err) {
             console.error('Failed to toggle thread read setting', err);
             // 失敗時はUIを元に戻し、最新状態を再フェッチ
@@ -2025,12 +2231,12 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                         </svg>
                     </button>
-                    {roomMenuOpen && (
+                    {roomMenuOpen && portalReady && createPortal(
                         <>
-                            <div className="fixed inset-0 z-10" onClick={() => setRoomMenuOpen(false)} />
+                            <div className="fixed inset-0 z-[9998]" onClick={() => setRoomMenuOpen(false)} />
                             <div
                                 ref={roomMenuContainerRef}
-                                className="fixed w-56 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-20"
+                                className="fixed w-56 bg-white dark:bg-surface-800 rounded-xl shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-[9999]"
                                 style={{ top: roomMenuPosition.top, left: roomMenuPosition.left, visibility: roomMenuPosition.visibility }}
                             >
                                 {roomInfo?.type === 'group' && (
@@ -2100,7 +2306,8 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                     <span className="text-sm font-medium">{roomInfo?.type === 'dm' ? '削除する' : '退出する'}</span>
                                 </button>
                             </div>
-                        </>
+                        </>,
+                        document.body
                     )}
                 </div>
             </header>
@@ -2665,6 +2872,23 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                     }
                                                     return null;
                                                 })()}
+                                                {msg.is_mine && roomInfo?.type === 'group' && (() => {
+                                                    const myMessages = messages.filter(m => m.is_mine);
+                                                    const lastMyMessage = myMessages[myMessages.length - 1];
+                                                    const isLastMyMessage = lastMyMessage?.id === msg.id;
+                                                    if (!isLastMyMessage) return null;
+                                                    const readers = getGroupReadersForMessage(msg.id);
+                                                    if (readers.length === 0) return null;
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setReadListMessageId(msg.id)}
+                                                            className="text-surface-400 dark:text-surface-500 hover:text-surface-600"
+                                                        >
+                                                            既読 {readers.length}
+                                                        </button>
+                                                    );
+                                                })()}
 
                                                 {/* 時間表示 */}
                                                 <span>{formatMessageTime(msg.created_at)}</span>
@@ -2677,10 +2901,13 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                         onClick={(e) => {
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             const isMine = msg.is_mine;
+                                                            actionMenuAnchorRef.current = rect;
+                                                            actionMenuAlignRef.current = isMine ? 'right' : 'left';
                                                             setActionMenuStyles({
                                                                 position: 'fixed',
-                                                                top: rect.bottom + 4,
-                                                                [isMine ? 'right' : 'left']: isMine ? window.innerWidth - rect.right : rect.left,
+                                                                top: `${rect.bottom + 4}px`,
+                                                                left: `${rect.left}px`,
+                                                                visibility: 'hidden',
                                                             });
                                                             setActionMenuMessageId(actionMenuMessageId === msg.id ? null : msg.id);
                                                         }}
@@ -2751,6 +2978,51 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                     スレッドが見つかりません
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {readListMessageId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setReadListMessageId(null)}>
+                    <div className="w-full max-w-md bg-white dark:bg-surface-900 rounded-xl shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-4 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold">既読メンバー</h3>
+                            <button className="btn-icon p-2" onClick={() => setReadListMessageId(null)} aria-label="閉じる">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="max-h-[60vh] overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
+                            {(() => {
+                                const readers = getGroupReadersForMessage(readListMessageId);
+                                if (readers.length === 0) {
+                                    return <div className="p-5 text-sm text-surface-500">既読メンバーはいません</div>;
+                                }
+                                return readers.map((member) => (
+                                    <div key={member.user_id} className="flex items-center gap-3 px-5 py-3">
+                                        <div className="w-8 h-8 rounded-full overflow-hidden bg-surface-200 dark:bg-surface-700 flex items-center justify-center flex-shrink-0">
+                                            {member.avatar_path ? (
+                                                <img
+                                                    src={getStorageUrl('avatars', member.avatar_path)}
+                                                    alt={member.display_name}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <span className="text-xs font-semibold text-surface-600 dark:text-surface-300">
+                                                    {getInitials(member.display_name)}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="font-medium truncate">{member.display_name}</p>
+                                            {member.handle && (
+                                                <p className="text-xs text-surface-500">@{member.handle}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ));
+                            })()}
                         </div>
                     </div>
                 </div>
@@ -2935,10 +3207,14 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
             </div>
 
             {/* Global Message Action Menu */}
-            {actionMenuMessageId && (
+            {actionMenuMessageId && portalReady && createPortal(
                 <>
-                    <div className="fixed inset-0 z-[100]" onClick={() => setActionMenuMessageId(null)} />
-                    <div style={actionMenuStyles} className="fixed w-28 bg-white dark:bg-surface-800 rounded-lg shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-[101]">
+                    <div className="fixed inset-0 z-[9998]" onClick={() => setActionMenuMessageId(null)} />
+                    <div
+                        ref={actionMenuContainerRef}
+                        style={actionMenuStyles}
+                        className="fixed w-28 bg-white dark:bg-surface-800 rounded-lg shadow-xl border border-surface-200 dark:border-surface-700 overflow-hidden z-[9999]"
+                    >
                         {(() => {
                             const msg = messages.find(m => m.id === actionMenuMessageId);
                             if (!msg) return null;
@@ -2968,7 +3244,8 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             );
                         })()}
                     </div>
-                </>
+                </>,
+                document.body
             )}
 
             {/* Edit Nickname Dialog */}
@@ -3000,14 +3277,10 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                             {uniqueSharedThreadIds.map((tid) => {
                                 const status = threadStatus[tid];
                                 const title = status?.title || '名称未設定のスレッド';
-                            const enabled = status?.readEnabled ?? true;
-                            const linkedHere = status?.sourceRoomId ? status.sourceRoomId === roomId : true;
-                            // 読み取られていない、または別トークが読込先なら非表示
-                            if (!enabled || !linkedHere) {
-                                return null;
-                            }
-                            return (
-                                <div key={tid} className="flex items-center gap-3 px-5 py-3">
+                                const enabled = status?.readEnabled ?? true;
+                                const linkedHere = status?.sourceRoomId ? status.sourceRoomId === roomId : true;
+                                return (
+                                    <div key={tid} className="flex items-center gap-3 px-5 py-3">
                                         <div className="flex-1 min-w-0">
                                             <p className="font-medium truncate">{title}</p>
                                             <p className="text-xs text-surface-500 flex items-center gap-2 flex-wrap">
@@ -3025,6 +3298,9 @@ export function ChatRoom({ roomId, userId }: ChatRoomProps) {
                                                 </span>
                                                 {!linkedHere && (
                                                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-100 dark:bg-surface-800 text-surface-500">別トークを読込先</span>
+                                                )}
+                                                {!enabled && (
+                                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-100 dark:bg-surface-800 text-surface-500">読取オフ</span>
                                                 )}
                                             </p>
                                         </div>

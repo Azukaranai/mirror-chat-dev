@@ -44,6 +44,7 @@ export default function LoginPage() {
         }
     };
 
+
     // Secret dev login: /login?dev=1 で env に設定した開発アカウントに自動サインイン
     useEffect(() => {
         const isDevLogin = searchParams?.get('dev') === '1';

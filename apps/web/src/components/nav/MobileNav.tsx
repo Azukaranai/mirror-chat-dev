@@ -45,10 +45,11 @@ export function MobileNav() {
     const router = useRouter();
     const { unreadTotalCount, pendingFriendRequests } = useChatStore();
 
-    // Hide mobile nav on chat room pages (/talk/[id]) to prevent keyboard interference
+    // Hide mobile nav on full-screen pages (/talk/[id], /ai/[id]) to prevent UI clutter
     const isChatRoom = pathname.startsWith('/talk/') && pathname.split('/').length > 2;
+    const isAiThread = pathname.startsWith('/ai/') && pathname.split('/').length > 2;
 
-    if (isChatRoom) {
+    if (isChatRoom || isAiThread) {
         return null;
     }
 

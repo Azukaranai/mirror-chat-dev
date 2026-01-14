@@ -14,9 +14,9 @@ const PlusIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-const EllipsisHorizontalIcon = ({ className }: { className?: string }) => (
+const EllipsisVerticalIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12a.75.75 0 110-1.5.75.75 0 010 1.5zM17.25 12a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12a.75.75 0 110-1.5.75.75 0 010 1.5zM12 17.25a.75.75 0 110-1.5.75.75 0 010 1.5z" />
     </svg>
 );
 
@@ -63,6 +63,7 @@ interface ThreadListProps {
 export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
     const supabase = useMemo(() => createClient(), []);
     const router = useRouter();
+    const refreshEventName = 'ai-thread-list-refresh';
 
     const [threads, setThreads] = useState<Thread[]>([]);
     const [sharedThreads, setSharedThreads] = useState<Thread[]>([]);
@@ -185,6 +186,16 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
     }, [fetchThreads]);
 
     useEffect(() => {
+        const handleRefresh = () => {
+            fetchThreads();
+        };
+        window.addEventListener(refreshEventName, handleRefresh);
+        return () => {
+            window.removeEventListener(refreshEventName, handleRefresh);
+        };
+    }, [fetchThreads, refreshEventName]);
+
+    useEffect(() => {
         if (!menuOpenThreadId) return;
         const handleOutsideClick = (event: MouseEvent) => {
             if (
@@ -207,20 +218,25 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
         const frame = requestAnimationFrame(() => {
             const anchor = menuAnchorRef.current!;
             const menuRect = menuContainerRef.current!.getBoundingClientRect();
+            const viewport = window.visualViewport;
+            const viewportWidth = viewport?.width ?? window.innerWidth;
+            const viewportHeight = viewport?.height ?? window.innerHeight;
+            const offsetLeft = viewport?.offsetLeft ?? 0;
+            const offsetTop = viewport?.offsetTop ?? 0;
             const margin = 8;
 
             let left = anchor.right - menuRect.width;
             let top = anchor.bottom + 8;
 
-            if (left < margin) left = margin;
-            if (left + menuRect.width > window.innerWidth - margin) {
-                left = window.innerWidth - menuRect.width - margin;
+            if (left < offsetLeft + margin) left = offsetLeft + margin;
+            if (left + menuRect.width > offsetLeft + viewportWidth - margin) {
+                left = offsetLeft + viewportWidth - menuRect.width - margin;
             }
 
-            if (top + menuRect.height > window.innerHeight - margin) {
+            if (top + menuRect.height > offsetTop + viewportHeight - margin) {
                 top = anchor.top - menuRect.height - 8;
             }
-            if (top < margin) top = margin;
+            if (top < offsetTop + margin) top = offsetTop + margin;
 
             setMenuPosition({ top, left, visibility: 'visible' });
         });
@@ -537,13 +553,13 @@ export function ThreadList({ userId, activeThreadId }: ThreadListProps) {
                                         )}
                                         aria-label="スレッドメニュー"
                                     >
-                                        <EllipsisHorizontalIcon className="w-4 h-4" />
+                                        <EllipsisVerticalIcon className="w-4 h-4" />
                                     </button>
                                 </div>
                                 {isMenuOpen && (
                                     <div
                                         ref={menuContainerRef}
-                                        className="fixed w-52 rounded-2xl bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-lg z-50 overflow-hidden text-sm divide-y divide-surface-200 dark:divide-surface-700"
+                                        className="fixed w-52 rounded-2xl bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-lg z-[9999] overflow-hidden text-sm divide-y divide-surface-200 dark:divide-surface-700"
                                         style={{ top: menuPosition.top, left: menuPosition.left, visibility: menuPosition.visibility }}
                                     >
                                         {isOwned && (

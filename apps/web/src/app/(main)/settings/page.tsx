@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useUIStore } from '@/lib/stores';
 import type { FontScale, Theme } from '@/types';
 import { VersionDisplay } from '@/components/common/VersionDisplay';
+import { encryptApiKeyClientSide } from '@/lib/crypto';
 
 export default function SettingsPage() {
     const router = useRouter();
@@ -69,6 +70,23 @@ export default function SettingsPage() {
         router.refresh();
     };
 
+    const handleForceResetSession = async () => {
+        try {
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+            if (supabaseUrl) {
+                const projectRef = new URL(supabaseUrl).hostname.split('.')[0];
+                if (projectRef) {
+                    localStorage.removeItem(`sb-${projectRef}-auth-token`);
+                }
+            }
+        } catch {
+            // ignore
+        }
+        await supabase.auth.signOut({ scope: 'global' });
+        router.push('/login');
+        router.refresh();
+    };
+
     const handleSaveApiKey = async () => {
         if (!apiKey.trim()) return;
 
@@ -76,37 +94,37 @@ export default function SettingsPage() {
         setMessage(null);
 
         try {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const accessToken = sessionData.session?.access_token
-                ?? (await supabase.auth.refreshSession()).data.session?.access_token;
+            const { data: userData } = await supabase.auth.getUser();
+            const userId = userData.user?.id;
+            if (!userId) {
+                setMessage({ type: 'error', text: 'ユーザー情報の取得に失敗しました' });
+                return;
+            }
 
-            const { data, error } = await supabase.functions.invoke('key_set', {
-                body: { apiKey: apiKey.trim(), provider },
-                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-            });
+            const trimmedKey = apiKey.trim();
+            const encryptedKey = await encryptApiKeyClientSide(trimmedKey, userId);
+            const last4 = trimmedKey.slice(-4);
+
+            const { error } = await supabase
+                .from('user_llm_keys')
+                .upsert(
+                    { user_id: userId, provider, encrypted_key: encryptedKey, key_last4: last4 },
+                    { onConflict: 'user_id,provider' }
+                );
 
             if (error) {
-                console.error('Edge Function error:', error);
-                const status = (error as any)?.context?.status ?? (error as any)?.status;
-                const messageText = typeof (error as any)?.message === 'string' ? (error as any).message : '';
-                if (status === 401 || messageText.toLowerCase().includes('invalid jwt')) {
-                    setMessage({ type: 'error', text: 'セッションが無効です。ログアウト→再ログインしてください。' });
-                    return;
-                }
-                // Try to get more details from the error
-                const errorDetail = error.message || JSON.stringify(error);
-                setMessage({ type: 'error', text: `保存に失敗しました: ${errorDetail}` });
-            } else if (data?.error) {
-                // Handle error returned in the response body
-                setMessage({ type: 'error', text: `保存に失敗しました: ${data.error}` });
-            } else {
-                setSavedKeys(prev => ({ ...prev, [provider]: data.last4 }));
-                setApiKey('');
-                setMessage({ type: 'success', text: `${providerOptions.find(p => p.value === provider)?.label} のAPIキーを保存しました` });
+                console.error('DB error:', error);
+                setMessage({ type: 'error', text: `保存に失敗しました: ${error.message}` });
+                return;
             }
+
+            setSavedKeys(prev => ({ ...prev, [provider]: last4 }));
+            setApiKey('');
+            setMessage({ type: 'success', text: `${providerOptions.find(p => p.value === provider)?.label} のAPIキーを保存しました` });
         } catch (e) {
             console.error('Unexpected error:', e);
-            setMessage({ type: 'error', text: 'エラーが発生しました' });
+            const messageText = e instanceof Error ? e.message : 'エラーが発生しました';
+            setMessage({ type: 'error', text: messageText });
         } finally {
             setSaving(false);
         }
@@ -309,6 +327,12 @@ export default function SettingsPage() {
                         className="btn-secondary w-full"
                     >
                         ログアウト
+                    </button>
+                    <button
+                        onClick={handleForceResetSession}
+                        className="btn-secondary w-full text-error-600 dark:text-error-400"
+                    >
+                        セッションを強制リセット
                     </button>
                 </section>
 

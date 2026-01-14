@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { CHAT_CONTEXT_PREFIX } from '@/lib/utils';
 import { createSharedAIThreadCard, cn, getStorageUrl, getInitials } from '@/lib/utils';
+import { encryptApiKeyClientSide } from '@/lib/crypto';
 import { useAIStore, useSplitStore } from '@/lib/stores';
 import type { AIThread } from '@/types/database';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -431,11 +432,25 @@ export function AIThreadView({
     );
 
     const getAccessTokenOrThrow = useCallback(async () => {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        const token = data.session?.access_token;
-        if (!token) throw new Error('Missing access token');
-        return token;
+        const { data: sessionData } = await supabase.auth.getSession();
+        let accessToken = sessionData.session?.access_token;
+
+        if (accessToken) {
+            const { error: userError } = await supabase.auth.getUser();
+            if (userError?.message?.toLowerCase().includes('invalid jwt')) {
+                accessToken = undefined;
+            }
+        }
+
+        if (!accessToken) {
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            accessToken = refreshed.session?.access_token;
+        }
+
+        if (!accessToken) {
+            throw new Error('Missing access token');
+        }
+        return accessToken;
     }, [supabase]);
 
     const kickQueue = useCallback(async () => {
@@ -555,6 +570,7 @@ export function AIThreadView({
 
         fetchPermission();
     }, [supabase, threadId, userId, isOwner, permission]);
+
 
     useEffect(() => {
         if (!userId) return;
@@ -1208,31 +1224,28 @@ export function AIThreadView({
         const last4 = rawKey.slice(-4);
 
         try {
-            // Import crypto utilities dynamically (only available in browser)
-            const { encryptApiKeyClientSide } = await import('@/lib/crypto');
-
-            // Encrypt client-side - server will never see the raw key
-            const encryptedKey = await encryptApiKeyClientSide(rawKey, userId);
-
-            const accessToken = await getAccessTokenOrThrow();
-
-            const { data, error } = await supabase.functions.invoke('key_set', {
-                body: {
-                    apiKey: encryptedKey,  // Already encrypted
-                    provider,
-                    last4  // Send last4 separately since server can't extract it
-                },
-                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-            });
-
-            if (error) {
-                console.error('Failed to save API key:', error);
-                const errorMsg = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
-                setApiKeyError(`保存に失敗しました: ${errorMsg}`);
+            const { data: userData } = await supabase.auth.getUser();
+            const currentUserId = userData.user?.id;
+            if (!currentUserId) {
+                setApiKeyError('ユーザー情報の取得に失敗しました');
                 return;
             }
 
-            setApiKeys(prev => ({ ...prev, [provider]: data?.last4 || last4 }));
+            const encryptedKey = await encryptApiKeyClientSide(rawKey, currentUserId);
+            const { error } = await supabase
+                .from('user_llm_keys')
+                .upsert(
+                    { user_id: currentUserId, provider, encrypted_key: encryptedKey, key_last4: last4 },
+                    { onConflict: 'user_id,provider' }
+                );
+
+            if (error) {
+                console.error('DB error:', error);
+                setApiKeyError(`保存に失敗しました: ${error.message}`);
+                return;
+            }
+
+            setApiKeys(prev => ({ ...prev, [provider]: last4 }));
             setApiKeyModalOpen(false);
             setApiKeyInput('');
         } catch (e: any) {

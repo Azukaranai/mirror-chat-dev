@@ -35,9 +35,6 @@ serve(async (req: Request) => {
             });
         }
 
-        // Create admin client for database operations
-        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
         // Get Authorization header
         const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
 
@@ -51,6 +48,9 @@ serve(async (req: Request) => {
 
         const token = authHeader.replace('Bearer ', '');
         console.log('Token length:', token.length, 'Token prefix:', token.substring(0, 20));
+
+        // Create admin client for database operations
+        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
         const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
 
